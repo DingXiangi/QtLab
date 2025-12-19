@@ -1,4 +1,5 @@
 #include "idatabase.h"
+#include<QUuid>
 
 void IDatabase::ininDatabase()
 {
@@ -25,6 +26,22 @@ bool IDatabase::initPatientModel()
     return true;
 }
 
+int IDatabase::addNewPatient()
+{
+    patientTabModel->insertRow(patientTabModel->rowCount(),
+                               QModelIndex()); //在末尾添加一个记录
+    QModelIndex curIndex = patientTabModel->index(patientTabModel->rowCount() - 1,
+                                                  1); //创建最后一行的ModelIndex
+int curRecNo = curIndex.row();
+QSqlRecord curRec = patientTabModel->record(curRecNo); //获取当前记录
+curRec.setValue("CREATEDTIMESTAMP", QDateTime::currentDateTime().toString("yyyy-MM-dd"));
+curRec.setValue("ID", QUuid::createUuid().toString(QUuid::WithoutBraces));
+patientTabModel->setRecord(curRecNo, curRec);
+
+return curIndex.row();
+
+    return curIndex.row();
+}
 bool IDatabase::searvhPatient(QString filter)
 {
     patientTabModel->setFilter(filter);
@@ -34,9 +51,19 @@ bool IDatabase::searvhPatient(QString filter)
 bool IDatabase::deleteCurrentPatient()
 {
     QModelIndex curIndex = thePatientSelection->currentIndex();
-    patientTabModel->removeRow(curIndex.row());
-    patientTabModel->submitAll();
+    // 先判断索引是否有效（避免无效行操作）
+    if (!curIndex.isValid()) {
+        return false;
+    }
+    // 尝试删除行
+    if (!patientTabModel->removeRow(curIndex.row())) {
+        return false;
+    }
+    // 提交修改（返回提交结果）
+    bool submitOk = patientTabModel->submitAll();
+    // 重新查询数据（刷新模型）
     patientTabModel->select();
+    return submitOk;
 }
 
 bool IDatabase::submitPatientEdit()

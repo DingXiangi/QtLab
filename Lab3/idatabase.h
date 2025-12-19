@@ -28,7 +28,7 @@ private:
     void ininDatabase();
 public:
     bool initPatientModel();
-
+    int addNewPatient();
     bool searvhPatient(QString filter);
     bool deleteCurrentPatient();
     bool submitPatientEdit();
