@@ -1,16 +1,20 @@
 #include "masterview.h"
 #include "ui_masterview.h"
 #include <QDebug>
+#include "idatabase.h"
 
 MasterView::MasterView(QWidget *parent)
     : QWidget(parent)
     , ui(new Ui::MasterView)
 {
     ui->setupUi(this);
-    this->setWindowFlag(Qt::FramelessWindowHint);
-    goLoginView();
-}
 
+    this->setWindowFlag(Qt::FramelessWindowHint);
+
+    goLoginView();
+
+    IDatabase::getInstance();
+}
 
 MasterView::~MasterView()
 {
