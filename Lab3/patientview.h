@@ -12,7 +12,7 @@ class PatientView : public QWidget
     Q_OBJECT
 
 public:
-    explicit PatientView(QWidget *parent = nullptr);
+    explicit PatientView(QWidget *parent=nullptr);
     ~PatientView();
 
 private slots:
@@ -20,8 +20,6 @@ private slots:
 
 signals:
     void goPatientEditView();
-
-
 
 private:
     Ui::PatientView *ui;
