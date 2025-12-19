@@ -29,6 +29,10 @@ private:
 public:
     bool initPatientModel();
 
+    bool searvhPatient(QString filter);
+    bool deleteCurrentPatient();
+    bool submitPatientEdit();
+    void revertPatientEdit();
 
 
 

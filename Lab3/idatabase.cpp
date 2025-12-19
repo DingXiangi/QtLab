@@ -25,6 +25,29 @@ bool IDatabase::initPatientModel()
     return true;
 }
 
+bool IDatabase::searvhPatient(QString filter)
+{
+    patientTabModel->setFilter(filter);
+    return patientTabModel->select();
+}
+
+bool IDatabase::deleteCurrentPatient()
+{
+    QModelIndex curIndex = thePatientSelection->currentIndex();
+    patientTabModel->removeRow(curIndex.row());
+    patientTabModel->submitAll();
+    patientTabModel->select();
+}
+
+bool IDatabase::submitPatientEdit()
+{
+    return patientTabModel->submitAll();
+}
+
+void IDatabase::revertPatientEdit()
+{
+    patientTabModel->revertAll();
+}
 
 
     QString IDatabase::userLogin(QString userName, QString password)
