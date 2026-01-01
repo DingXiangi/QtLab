@@ -8,11 +8,7 @@ class ServerWorker : public QObject
 {
     Q_OBJECT
 public:
-    explicit ServerWorker(QObject *parent = nullptr){
-
-        m_serverSocket=new QTcpSocket(this);
-        connect(m_serverSocket, &QTcpSocket::readyRead, this, &ServerWorker::onReadyRead);
-    }
+    explicit ServerWorker(QObject *parent = nullptr);
     virtual bool setSocketDescriptor(qintptr socketDescriptor);
 
     QString userName();
@@ -22,6 +18,7 @@ signals:
 void logMessage(const QString &msg);
 
 void jsonReceived(ServerWorker *sender, const QJsonObject &docObj);
+void disconnectedFromClient();
 
 private:
     QTcpSocket *m_serverSocket;

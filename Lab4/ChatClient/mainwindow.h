@@ -28,9 +28,11 @@ private slots:
     void messageReceived(const QString &sender, const QString &text);
     void jsonReceived(const QJsonObject &docObj);
     void userJoined(const QString &user);
-
+    void userLeft(const QString &user);
+void userListReceived(const QStringList &list);
 private:
     Ui::MainWindow *ui;
     ChatClient *m_chatClient;
+
 };
 #endif // MAINWINDOW_H
