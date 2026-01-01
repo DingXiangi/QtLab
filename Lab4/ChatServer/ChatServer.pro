@@ -11,11 +11,13 @@ CONFIG += c++17
 SOURCES += \
     chatserver.cpp \
     main.cpp \
-    mainwindow.cpp
+    mainwindow.cpp \
+    serverworker.cpp
 
 HEADERS += \
     chatserver.h \
-    mainwindow.h
+    mainwindow.h \
+    serverworker.h
 
 FORMS += \
     mainwindow.ui
