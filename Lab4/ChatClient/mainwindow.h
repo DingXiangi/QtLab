@@ -25,7 +25,9 @@ private slots:
 
     void on_loginButton_clicked();
     void connectedToServer();
-    void messageReceived(const QString &text);
+    void messageReceived(const QString &sender, const QString &text);
+    void jsonReceived(const QJsonObject &docObj);
+    void userJoined(const QString &user);
 
 private:
     Ui::MainWindow *ui;

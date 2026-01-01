@@ -32,7 +32,6 @@ void ServerWorker::onReadyRead()
         socketStream >> jsonData;
         if (socketStream.commitTransaction()) {
             emit logMessage(QString::fromUtf8(jsonData));
-            sendMessage("I recieved message");
 
             QJsonParseError parseError;
             const QJsonDocument jsonDoc = QJsonDocument::fromJson(jsonData, &parseError);
