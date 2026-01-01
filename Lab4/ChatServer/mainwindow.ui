@@ -22,7 +22,7 @@
       </property>
       <layout class="QVBoxLayout" name="verticalLayout">
        <item>
-        <widget class="QPlainTextEdit" name="plainTextEdit"/>
+        <widget class="QPlainTextEdit" name="logEditor"/>
        </item>
       </layout>
      </widget>
@@ -45,7 +45,7 @@
       <item>
        <widget class="QPushButton" name="startStopButton">
         <property name="text">
-         <string>PushButton</string>
+         <string>启动服务器</string>
         </property>
        </widget>
       </item>
