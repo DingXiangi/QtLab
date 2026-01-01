@@ -17,7 +17,11 @@
    <item>
     <layout class="QHBoxLayout" name="horizontalLayout">
      <item>
-      <widget class="QLineEdit" name="txtSearch"/>
+      <widget class="QLineEdit" name="txtSearch">
+       <property name="placeholderText">
+        <string>请输入信息</string>
+       </property>
+      </widget>
      </item>
      <item>
       <widget class="QPushButton" name="btSearch">
