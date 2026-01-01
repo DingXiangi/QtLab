@@ -21,6 +21,9 @@ signals:
 public slots:
     void stopServer();
 
+    void jsonReceived(ServerWorker *sender, const QJsonObject &docObj);
+    void broadcast(const QJsonObject &message, ServerWorker *exclude);
+
 };
 
 #endif
