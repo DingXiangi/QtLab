@@ -37,6 +37,8 @@ void MainWindow::setupUI()
     m_playButton = ui->playButton;
     m_openButton = ui->openButton;
     m_stopButton = ui->stopButton;
+    m_forwardButton = ui->forwardButton;
+    m_backwardButton = ui->backwardButton;
     m_positionSlider = ui->positionSlider;
     m_positionLabel = ui->positionLabel;
     m_durationLabel = ui->durationLabel;
@@ -44,6 +46,8 @@ void MainWindow::setupUI()
     // 初始化控件状态
     m_playButton->setEnabled(false);
     m_stopButton->setEnabled(false);
+    m_forwardButton->setEnabled(false);
+    m_backwardButton->setEnabled(false);
     m_positionSlider->setEnabled(false);
     m_positionSlider->setRange(0, 100);
     m_positionSlider->setValue(0);
@@ -60,6 +64,8 @@ void MainWindow::setupConnections()
     connect(m_openButton, &QPushButton::clicked, this, &MainWindow::openFile);
     connect(m_playButton, &QPushButton::clicked, this, &MainWindow::play);
     connect(m_stopButton, &QPushButton::clicked, this, &MainWindow::stop);
+    connect(m_forwardButton, &QPushButton::clicked, this, &MainWindow::seekForward);
+    connect(m_backwardButton, &QPushButton::clicked, this, &MainWindow::seekBackward);
 
     // 连接媒体播放器信号
     connect(m_mediaPlayer, &QMediaPlayer::positionChanged,
@@ -167,6 +173,8 @@ void MainWindow::openFile()
         m_mediaPlayer->setSource(QUrl::fromLocalFile(filePath));
         m_playButton->setEnabled(true);
         m_stopButton->setEnabled(true);
+        m_forwardButton->setEnabled(true);
+        m_backwardButton->setEnabled(true);
         m_positionSlider->setEnabled(true);
         m_playButton->setText(tr("播放"));
         statusBar()->showMessage(tr("已加载: %1").arg(QFileInfo(filePath).fileName()));
@@ -197,6 +205,25 @@ void MainWindow::stop()
     m_positionSlider->setValue(0);
     m_positionLabel->setText("00:00");
     statusBar()->showMessage(tr("已停止"));
+}
+
+void MainWindow::seekForward()
+{
+    // 快进10秒
+    qint64 currentPosition = m_mediaPlayer->position();
+    qint64 duration = m_mediaPlayer->duration();
+    qint64 newPosition = qMin(currentPosition + 10000, duration);
+    m_mediaPlayer->setPosition(newPosition);
+    statusBar()->showMessage(tr("快进至 %1").arg(m_positionLabel->text()));
+}
+
+void MainWindow::seekBackward()
+{
+    // 快退10秒
+    qint64 currentPosition = m_mediaPlayer->position();
+    qint64 newPosition = qMax(currentPosition - 10000, static_cast<qint64>(0));
+    m_mediaPlayer->setPosition(newPosition);
+    statusBar()->showMessage(tr("快退至 %1").arg(m_positionLabel->text()));
 }
 
 void MainWindow::positionChanged(qint64 position)

@@ -24,6 +24,8 @@ private slots:
     void openFile();
     void play();
     void stop();
+    void seekForward();
+    void seekBackward();
     void positionChanged(qint64 position);
     void durationChanged(qint64 duration);
 
@@ -38,6 +40,8 @@ private:
     QPushButton *m_playButton;
     QPushButton *m_openButton;
     QPushButton *m_stopButton;
+    QPushButton *m_forwardButton;
+    QPushButton *m_backwardButton;
 
     // 进度条
     QSlider *m_positionSlider;
