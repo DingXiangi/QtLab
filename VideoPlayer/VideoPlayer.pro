@@ -1,4 +1,4 @@
-QT       += core gui
+QT += core gui multimedia multimediawidgets sql network concurrent
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
@@ -9,17 +9,17 @@ CONFIG += c++17
 #DEFINES += QT_DISABLE_DEPRECATED_BEFORE=0x060000    # disables all the APIs deprecated before Qt 6.0.0
 
 SOURCES += \
-    databasemanager.cpp \
-    filescanner.cpp \
     main.cpp \
     mainwindow.cpp \
-    playlistmodel.cpp
+    databasemanager.cpp \
+    playlistmodel.cpp \
+    filescanner.cpp
 
 HEADERS += \
-    databasemanager.h \
-    filescanner.h \
     mainwindow.h \
-    playlistmodel.h
+    databasemanager.h \
+    playlistmodel.h \
+    filescanner.h
 
 FORMS += \
     mainwindow.ui
@@ -28,3 +28,6 @@ FORMS += \
 qnx: target.path = /tmp/$${TARGET}/bin
 else: unix:!android: target.path = /opt/$${TARGET}/bin
 !isEmpty(target.path): INSTALLS += target
+
+RESOURCES += \
+    resources.qrc
