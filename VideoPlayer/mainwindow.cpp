@@ -6,11 +6,24 @@
 #include <QFileInfo>
 #include <QStyle>
 #include <QSignalBlocker>
+#include <QScrollBar>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QFile>
+#include <QDir>
+#include <Qt>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
     , m_seekBarDown(false)
+    , m_playlistModel(nullptr)
+    , m_playlistDock(nullptr)
+    , m_playlistView(nullptr)
+    , m_addToPlaylistButton(nullptr)
+    , m_removeFromPlaylistButton(nullptr)
+    , m_clearPlaylistButton(nullptr)
 {
     ui->setupUi(this);
 
@@ -19,8 +32,12 @@ MainWindow::MainWindow(QWidget *parent)
     setMinimumSize(600, 400);
 
     setupUI();
+    setupPlaylistUI();
     setupConnections();
     applyStyles();
+
+    // 加载保存的播放列表
+    loadPlaylistFromFile();
 }
 
 MainWindow::~MainWindow()
@@ -56,8 +73,91 @@ void MainWindow::setupUI()
     m_positionLabel->setText("00:00");
     m_durationLabel->setText("00:00");
 
+    // 播放列表按钮初始状态（将在setupPlaylistUI中初始化）
+
     // 更新状态栏
     statusBar()->showMessage(tr("欢迎使用简易视频播放器"));
+}
+
+void MainWindow::setupPlaylistUI()
+{
+    // 创建播放列表模型
+    m_playlistModel = new PlaylistModel(this);
+
+    // 创建播放列表停靠窗口
+    m_playlistDock = new QDockWidget(tr("播放列表"), this);
+    m_playlistDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    m_playlistDock->setMinimumWidth(200);
+    m_playlistDock->setMaximumWidth(350);
+    m_playlistDock->setFeatures(QDockWidget::DockWidgetClosable | QDockWidget::DockWidgetMovable);
+
+    // 创建停靠窗口的内容部件
+    QWidget *playlistContents = new QWidget(m_playlistDock);
+    QVBoxLayout *playlistLayout = new QVBoxLayout(playlistContents);
+    playlistLayout->setContentsMargins(4, 4, 4, 4);
+    playlistLayout->setSpacing(2);
+
+    // 创建播放列表视图
+    m_playlistView = new QListView(playlistContents);
+    m_playlistView->setModel(m_playlistModel);
+    m_playlistView->setAlternatingRowColors(true);
+    m_playlistView->setSelectionMode(QListView::SingleSelection);
+    m_playlistView->setSelectionBehavior(QListView::SelectRows);
+    m_playlistView->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_playlistView->setStyleSheet(
+        "QListView {"
+        "    background-color: #2a2a2a;"
+        "    color: #e0e0e0;"
+        "    border: none;"
+        "    outline: none;"
+        "}"
+        ""
+        "QListView::item {"
+        "    height: 26px;"
+        "    padding-left: 6px;"
+        "    border-bottom: 1px solid #333333;"
+        "}"
+        ""
+        "QListView::item:selected {"
+        "    background-color: #4a90d9;"
+        "    color: #ffffff;"
+        "}"
+        ""
+        "QListView::item:hover:!selected {"
+        "    background-color: #3a3a3a;"
+        "}"
+        );
+
+    // 创建按钮布局
+    QHBoxLayout *buttonLayout = new QHBoxLayout();
+    buttonLayout->setSpacing(4);
+
+    // 创建按钮
+    m_addToPlaylistButton = new QPushButton(tr("添加文件"), playlistContents);
+    m_removeFromPlaylistButton = new QPushButton(tr("移除"), playlistContents);
+    m_clearPlaylistButton = new QPushButton(tr("清空"), playlistContents);
+
+    m_addToPlaylistButton->setMinimumWidth(70);
+    m_removeFromPlaylistButton->setMinimumWidth(50);
+    m_clearPlaylistButton->setMinimumWidth(50);
+
+    m_removeFromPlaylistButton->setEnabled(false);
+    m_clearPlaylistButton->setEnabled(false);
+
+    buttonLayout->addWidget(m_addToPlaylistButton);
+    buttonLayout->addWidget(m_removeFromPlaylistButton);
+    buttonLayout->addWidget(m_clearPlaylistButton);
+    buttonLayout->addStretch();
+
+    // 添加到布局
+    playlistLayout->addWidget(m_playlistView);
+    playlistLayout->addLayout(buttonLayout);
+
+    // 设置停靠窗口的内容
+    m_playlistDock->setWidget(playlistContents);
+
+    // 添加到主窗口
+    addDockWidget(Qt::LeftDockWidgetArea, m_playlistDock);
 }
 
 void MainWindow::setupConnections()
@@ -82,6 +182,28 @@ void MainWindow::setupConnections()
             this, &MainWindow::positionChanged);
     connect(m_mediaPlayer, &QMediaPlayer::durationChanged,
             this, &MainWindow::durationChanged);
+
+    // 连接播放列表信号
+    connect(m_addToPlaylistButton, &QPushButton::clicked,
+            this, &MainWindow::addFilesToPlaylist);
+    connect(m_removeFromPlaylistButton, &QPushButton::clicked,
+            this, &MainWindow::removeFromPlaylist);
+    connect(m_clearPlaylistButton, &QPushButton::clicked,
+            this, &MainWindow::clearPlaylist);
+
+    // 连接列表视图的双击和单击激活信号
+    connect(m_playlistView, &QListView::activated,
+            this, &MainWindow::onPlaylistActivated);
+    connect(m_playlistView, &QListView::doubleClicked,
+            this, &MainWindow::onPlaylistDoubleClicked);
+
+    // 连接模型的数据改变信号，更新按钮状态
+    connect(m_playlistModel, &PlaylistModel::dataChanged,
+            this, &MainWindow::updatePlaylistStatus);
+    connect(m_playlistModel, &PlaylistModel::rowsInserted,
+            this, &MainWindow::updatePlaylistStatus);
+    connect(m_playlistModel, &PlaylistModel::rowsRemoved,
+            this, &MainWindow::updatePlaylistStatus);
 }
 
 void MainWindow::applyStyles()
@@ -326,3 +448,135 @@ void MainWindow::updateDurationLabel(qint64 duration)
     m_durationLabel->setText(timeStr);
 }
 
+void MainWindow::addFilesToPlaylist()
+{
+    QStringList filePaths = QFileDialog::getOpenFileNames(
+        this,
+        tr("添加视频文件到播放列表"),
+        QDir::homePath(),
+        tr("视频文件 (*.mp4 *.avi *.mkv *.mov *.wmv *.flv *.webm);;所有文件 (*.*)")
+        );
+
+    if (!filePaths.isEmpty()) {
+        for (const QString &filePath : filePaths) {
+            if (m_playlistModel->getIndex(filePath) == -1) {
+                m_playlistModel->addItem(filePath);
+            }
+        }
+        savePlaylistToFile();
+        statusBar()->showMessage(tr("已添加 %1 个文件到播放列表").arg(filePaths.count()));
+    }
+}
+
+void MainWindow::removeFromPlaylist()
+{
+    QModelIndex currentIndex = m_playlistView->currentIndex();
+    if (currentIndex.isValid()) {
+        QString fileName = m_playlistModel->data(currentIndex, Qt::DisplayRole).toString();
+        m_playlistModel->removeItem(currentIndex.row());
+        savePlaylistToFile();
+        statusBar()->showMessage(tr("已移除: %1").arg(fileName));
+    }
+}
+
+void MainWindow::clearPlaylist()
+{
+    if (m_playlistModel->count() > 0) {
+        m_playlistModel->clear();
+        savePlaylistToFile();
+        statusBar()->showMessage(tr("播放列表已清空"));
+    }
+}
+
+void MainWindow::onPlaylistActivated(const QModelIndex &index)
+{
+    if (index.isValid()) {
+        QString filePath = m_playlistModel->getFilePath(index.row());
+        if (!filePath.isEmpty()) {
+            playFile(filePath);
+            m_playlistModel->setCurrentIndex(index.row());
+        }
+    }
+}
+
+void MainWindow::onPlaylistDoubleClicked(const QModelIndex &index)
+{
+    onPlaylistActivated(index);
+}
+
+void MainWindow::updatePlaylistStatus()
+{
+    // 更新移除按钮的状态
+    bool hasSelection = m_playlistView->currentIndex().isValid();
+    m_removeFromPlaylistButton->setEnabled(hasSelection);
+
+    // 更新清空按钮的状态
+    m_clearPlaylistButton->setEnabled(m_playlistModel->count() > 0);
+
+    // 如果有正在播放的文件，高亮显示
+    if (!m_currentFilePath.isEmpty()) {
+        int currentRow = m_playlistModel->getIndex(m_currentFilePath);
+        if (currentRow >= 0) {
+            QModelIndex modelIndex = m_playlistModel->index(currentRow);
+            m_playlistView->setCurrentIndex(modelIndex);
+        }
+    }
+}
+
+void MainWindow::loadPlaylistFromFile()
+{
+    QString playlistPath = QDir::homePath() + "/.videoplayer_playlist.json";
+    QFile file(playlistPath);
+
+    if (file.exists() && file.open(QIODevice::ReadOnly)) {
+        QByteArray jsonData = file.readAll();
+        file.close();
+
+        QJsonDocument doc = QJsonDocument::fromJson(jsonData);
+        if (doc.isArray()) {
+            QJsonArray array = doc.array();
+            for (const QJsonValue &value : array) {
+                if (value.isString()) {
+                    QString filePath = value.toString();
+                    // 检查文件是否存在
+                    if (QFile::exists(filePath)) {
+                        m_playlistModel->addItem(filePath);
+                    }
+                }
+            }
+        }
+    }
+}
+
+void MainWindow::savePlaylistToFile()
+{
+    QString playlistPath = QDir::homePath() + "/.videoplayer_playlist.json";
+    QFile file(playlistPath);
+
+    if (file.open(QIODevice::WriteOnly)) {
+        QJsonArray array;
+        for (int i = 0; i < m_playlistModel->count(); ++i) {
+            array.append(m_playlistModel->getFilePath(i));
+        }
+
+        QJsonDocument doc(array);
+        file.write(doc.toJson(QJsonDocument::Indented));
+        file.close();
+    }
+}
+
+void MainWindow::playFile(const QString &filePath)
+{
+    m_currentFilePath = filePath;
+    m_mediaPlayer->setSource(QUrl::fromLocalFile(filePath));
+
+    m_playButton->setEnabled(true);
+    m_stopButton->setEnabled(true);
+    m_forwardButton->setEnabled(true);
+    m_backwardButton->setEnabled(true);
+    m_positionSlider->setEnabled(true);
+    m_playButton->setText(tr("播放"));
+
+    QFileInfo fileInfo(filePath);
+    statusBar()->showMessage(tr("正在播放: %1").arg(fileInfo.fileName()));
+}

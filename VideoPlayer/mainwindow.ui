@@ -16,7 +16,47 @@
   <widget class="QWidget" name="centralWidget">
    <layout class="QVBoxLayout" name="mainLayout">
     <item>
-     <widget class="QVideoWidget" name="videoWidget"/>
+     <widget class="QVideoWidget" name="videoWidget" native="true">
+      <property name="minimumSize">
+       <size>
+        <width>0</width>
+        <height>300</height>
+       </size>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <widget class="QWidget" name="progressBar" native="true">
+      <layout class="QHBoxLayout" name="progressLayout">
+       <item>
+        <widget class="QLabel" name="positionLabel">
+         <property name="text">
+          <string>00:00</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QSlider" name="positionSlider">
+         <property name="maximum">
+          <number>100</number>
+         </property>
+         <property name="value">
+          <number>0</number>
+         </property>
+         <property name="orientation">
+          <enum>Qt::Orientation::Horizontal</enum>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="durationLabel">
+         <property name="text">
+          <string>00:00</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
     </item>
     <item>
      <widget class="QWidget" name="controlBar" native="true">
@@ -56,36 +96,6 @@
          </property>
         </widget>
        </item>
-       <item>
-        <spacer name="horizontalSpacer"/>
-       </item>
-       <item>
-        <widget class="QLabel" name="positionLabel">
-         <property name="text">
-          <string>00:00</string>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QSlider" name="positionSlider">
-         <property name="maximum">
-          <number>100</number>
-         </property>
-         <property name="value">
-          <number>0</number>
-         </property>
-         <property name="orientation">
-          <enum>Qt::Horizontal</enum>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QLabel" name="durationLabel">
-         <property name="text">
-          <string>00:00</string>
-         </property>
-        </widget>
-       </item>
       </layout>
      </widget>
     </item>
@@ -97,12 +107,19 @@
      <x>0</x>
      <y>0</y>
      <width>900</width>
-     <height>22</height>
+     <height>24</height>
     </rect>
    </property>
   </widget>
   <widget class="QStatusBar" name="statusBar"/>
  </widget>
+ <customwidgets>
+  <customwidget>
+   <class>QVideoWidget</class>
+   <extends>QWidget</extends>
+   <header>qvideowidget.h</header>
+  </customwidget>
+ </customwidgets>
  <resources/>
  <connections/>
 </ui>

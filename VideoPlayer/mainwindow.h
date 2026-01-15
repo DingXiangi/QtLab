@@ -7,6 +7,11 @@
 #include <QPushButton>
 #include <QSlider>
 #include <QLabel>
+#include <QListView>
+#include <QDockWidget>
+#include <QList>
+
+#include "playlistmodel.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -32,6 +37,14 @@ private slots:
     void positionChanged(qint64 position);
     void durationChanged(qint64 duration);
 
+    // 播放列表相关槽函数
+    void addFilesToPlaylist();
+    void removeFromPlaylist();
+    void clearPlaylist();
+    void onPlaylistActivated(const QModelIndex &index);
+    void onPlaylistDoubleClicked(const QModelIndex &index);
+    void updatePlaylistStatus();
+
 private:
     Ui::MainWindow *ui;
 
@@ -51,8 +64,21 @@ private:
     QLabel *m_positionLabel;
     QLabel *m_durationLabel;
 
+    // 播放列表相关控件
+    QDockWidget *m_playlistDock;
+    QListView *m_playlistView;
+    QPushButton *m_addToPlaylistButton;
+    QPushButton *m_removeFromPlaylistButton;
+    QPushButton *m_clearPlaylistButton;
+
+    // 播放列表数据模型
+    PlaylistModel *m_playlistModel;
+
     // 标记是否正在拖动进度条
     bool m_seekBarDown;
+
+    // 当前播放文件路径
+    QString m_currentFilePath;
 
     void setupUI();
     void setupConnections();
@@ -60,5 +86,11 @@ private:
     void updatePositionLabel(qint64 position);
     void updateDurationLabel(qint64 duration);
     void doSeek(int value);
+
+    // 播放列表辅助方法
+    void setupPlaylistUI();
+    void loadPlaylistFromFile();
+    void savePlaylistToFile();
+    void playFile(const QString &filePath);
 };
 #endif // MAINWINDOW_H
