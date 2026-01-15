@@ -20,6 +20,11 @@ public:
     MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
 
+private slots:
+    void openFile();
+    void play();
+    void stop();
+
 private:
     Ui::MainWindow *ui;
 

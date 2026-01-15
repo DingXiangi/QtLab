@@ -2,6 +2,8 @@
 #include "ui_mainwindow.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
+#include <QFileDialog>
+#include <QFileInfo>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -51,5 +53,50 @@ void MainWindow::setupUI()
 
 void MainWindow::setupConnections()
 {
-    // 连接信号和槽将在后续步骤中添加
+    // 连接按钮信号
+    connect(m_openButton, &QPushButton::clicked, this, &MainWindow::openFile);
+    connect(m_playButton, &QPushButton::clicked, this, &MainWindow::play);
+    connect(m_stopButton, &QPushButton::clicked, this, &MainWindow::stop);
+}
+
+void MainWindow::openFile()
+{
+    QString filePath = QFileDialog::getOpenFileName(
+        this,
+        tr("打开视频文件"),
+        QDir::homePath(),
+        tr("视频文件 (*.mp4 *.avi *.mkv *.mov *.wmv *.flv *.webm);;所有文件 (*.*)")
+        );
+
+    if (!filePath.isEmpty()) {
+        m_mediaPlayer->setSource(QUrl::fromLocalFile(filePath));
+        m_playButton->setEnabled(true);
+        m_stopButton->setEnabled(true);
+        m_positionSlider->setEnabled(true);
+        m_playButton->setText(tr("播放"));
+        statusBar()->showMessage(tr("已加载: %1").arg(QFileInfo(filePath).fileName()));
+    }
+}
+
+void MainWindow::play()
+{
+    switch (m_mediaPlayer->playbackState()) {
+    case QMediaPlayer::PlayingState:
+        m_mediaPlayer->pause();
+        m_playButton->setText(tr("播放"));
+        break;
+    case QMediaPlayer::PausedState:
+    case QMediaPlayer::StoppedState:
+        m_mediaPlayer->play();
+        m_playButton->setText(tr("暂停"));
+        break;
+    }
+}
+
+void MainWindow::stop()
+{
+    m_mediaPlayer->stop();
+    m_playButton->setText(tr("播放"));
+    m_positionSlider->setValue(0);
+    m_positionLabel->setText("00:00");
 }
