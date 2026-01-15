@@ -4,6 +4,7 @@
 #include <QMainWindow>
 #include <QMediaPlayer>
 #include <QVideoWidget>
+#include <QAudioOutput>
 #include <QPushButton>
 #include <QSlider>
 #include <QLabel>
@@ -61,6 +62,7 @@ private:
     // 视频播放相关控件
     QMediaPlayer *m_mediaPlayer;
     QVideoWidget *m_videoWidget;
+    QAudioOutput *m_audioOutput;
 
     // 播放控制按钮
     QPushButton *m_playButton;
@@ -105,6 +107,9 @@ private:
     // 最后保存的播放位置（用于避免重复保存）
     qint64 m_lastSavedPosition;
 
+    // 待恢复的播放位置（用于媒体加载完成后恢复）
+    qint64 m_pendingPosition;
+
     void setupUI();
     void setupConnections();
     void applyStyles();
@@ -126,3 +131,4 @@ private:
     void recordCurrentPosition();
 };
 #endif // MAINWINDOW_H
+

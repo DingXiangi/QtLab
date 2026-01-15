@@ -31,6 +31,7 @@ MainWindow::MainWindow(QWidget *parent)
     , m_clearHistoryButton(nullptr)
     , m_historyTimer(nullptr)
     , m_lastSavedPosition(0)
+    , m_pendingPosition(-1)
 {
     ui->setupUi(this);
 
@@ -65,7 +66,10 @@ void MainWindow::setupUI()
     // 初始化媒体播放器
     m_mediaPlayer = new QMediaPlayer(this);
     m_videoWidget = ui->videoWidget;
+    m_audioOutput = new QAudioOutput(this);
     m_mediaPlayer->setVideoOutput(m_videoWidget);
+    m_mediaPlayer->setAudioOutput(m_audioOutput);
+    m_audioOutput->setVolume(1.0);  // 最大音量
 
     // 获取UI中的控件
     m_playButton = ui->playButton;
@@ -330,8 +334,11 @@ void MainWindow::saveHistoryToFile()
 void MainWindow::recordCurrentPosition()
 {
     if (!m_currentFilePath.isEmpty() && m_mediaPlayer) {
-        m_historyModel->addItem(m_currentFilePath, m_mediaPlayer->position());
-        m_lastSavedPosition = m_mediaPlayer->position();
+        qint64 currentPos = m_mediaPlayer->position();
+        m_historyModel->addItem(m_currentFilePath, currentPos);
+        m_lastSavedPosition = currentPos;
+        // 立即保存到文件
+        saveHistoryToFile();
     }
 }
 
@@ -348,6 +355,13 @@ void MainWindow::recordPlaybackProgress()
         if (!m_currentFilePath.isEmpty()) {
             m_historyModel->addItem(m_currentFilePath, currentPos);
             m_lastSavedPosition = currentPos;
+            // 定期保存到文件（避免过于频繁）
+            static int saveCounter = 0;
+            saveCounter++;
+            if (saveCounter >= 6) {  // 每6次（约30秒）保存一次
+                saveHistoryToFile();
+                saveCounter = 0;
+            }
         }
     }
 }
@@ -374,6 +388,16 @@ void MainWindow::setupConnections()
             this, &MainWindow::positionChanged);
     connect(m_mediaPlayer, &QMediaPlayer::durationChanged,
             this, &MainWindow::durationChanged);
+
+    // 连接媒体状态变化信号，用于恢复播放进度
+    connect(m_mediaPlayer, &QMediaPlayer::mediaStatusChanged,
+            this, [this](QMediaPlayer::MediaStatus status) {
+                if (status == QMediaPlayer::LoadedMedia && m_pendingPosition >= 0) {
+                    m_mediaPlayer->setPosition(m_pendingPosition);
+                    m_lastSavedPosition = m_pendingPosition;
+                    m_pendingPosition = -1;
+                }
+            });
 
     // 连接播放列表信号
     connect(m_addToPlaylistButton, &QPushButton::clicked,
@@ -494,20 +518,8 @@ void MainWindow::openFile()
         );
 
     if (!filePath.isEmpty()) {
-        // 保存上一个文件的播放进度
-        if (!m_currentFilePath.isEmpty() && m_mediaPlayer) {
-            m_historyModel->addItem(m_currentFilePath, m_mediaPlayer->position());
-        }
-
-        // 调用playFile来加载新文件（会自动恢复播放进度）
+        // 调用playFile来加载新文件（会自动保存上一个文件进度并恢复播放进度）
         playFile(filePath);
-
-        // 如果有历史记录，恢复播放位置
-        qint64 savedPosition = m_historyModel->getLastPosition(filePath);
-        if (savedPosition > 0) {
-            m_mediaPlayer->setPosition(savedPosition);
-            m_lastSavedPosition = savedPosition;
-        }
     }
 }
 
@@ -752,13 +764,8 @@ void MainWindow::onHistoryActivated(const QModelIndex &index)
     if (index.isValid()) {
         QString filePath = m_historyModel->getFilePath(index.row());
         if (!filePath.isEmpty()) {
+            // playFile 会自动从历史记录恢复播放进度
             playFile(filePath);
-            // 恢复播放进度
-            qint64 savedPosition = m_historyModel->getLastPosition(filePath);
-            if (savedPosition > 0) {
-                m_mediaPlayer->setPosition(savedPosition);
-                m_lastSavedPosition = savedPosition;
-            }
         }
     }
 }
@@ -833,7 +840,10 @@ void MainWindow::playFile(const QString &filePath)
 {
     // 保存上一个文件的播放进度
     if (!m_currentFilePath.isEmpty() && m_mediaPlayer) {
-        m_historyModel->addItem(m_currentFilePath, m_mediaPlayer->position());
+        qint64 lastPos = m_mediaPlayer->position();
+        m_historyModel->addItem(m_currentFilePath, lastPos);
+        m_lastSavedPosition = lastPos;
+        saveHistoryToFile();  // 立即保存
     }
 
     m_currentFilePath = filePath;
@@ -842,9 +852,11 @@ void MainWindow::playFile(const QString &filePath)
     // 检查是否有历史记录，有则恢复播放进度
     qint64 savedPosition = m_historyModel->getLastPosition(filePath);
     if (savedPosition > 0) {
-        m_mediaPlayer->setPosition(savedPosition);
+        // 使用 pendingPosition，在媒体加载完成后恢复
+        m_pendingPosition = savedPosition;
         m_lastSavedPosition = savedPosition;
     } else {
+        m_pendingPosition = -1;
         m_lastSavedPosition = 0;
     }
 
@@ -858,3 +870,5 @@ void MainWindow::playFile(const QString &filePath)
     QFileInfo fileInfo(filePath);
     statusBar()->showMessage(tr("正在播放: %1").arg(fileInfo.fileName()));
 }
+
+
