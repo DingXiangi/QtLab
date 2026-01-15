@@ -93,6 +93,9 @@ void MainWindow::play()
     }
 }
 
+
+
+
 void MainWindow::stop()
 {
     m_mediaPlayer->stop();
