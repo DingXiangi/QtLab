@@ -2,6 +2,11 @@
 #define MAINWINDOW_H
 
 #include <QMainWindow>
+#include <QMediaPlayer>
+#include <QVideoWidget>
+#include <QPushButton>
+#include <QSlider>
+#include <QLabel>
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -17,6 +22,22 @@ public:
 
 private:
     Ui::MainWindow *ui;
-};
 
+    // 视频播放相关控件
+    QMediaPlayer *m_mediaPlayer;
+    QVideoWidget *m_videoWidget;
+
+    // 播放控制按钮
+    QPushButton *m_playButton;
+    QPushButton *m_openButton;
+    QPushButton *m_stopButton;
+
+    // 进度条
+    QSlider *m_positionSlider;
+    QLabel *m_positionLabel;
+    QLabel *m_durationLabel;
+
+    void setupUI();
+    void setupConnections();
+};
 #endif // MAINWINDOW_H
