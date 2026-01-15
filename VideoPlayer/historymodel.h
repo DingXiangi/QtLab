@@ -49,7 +49,8 @@ public:
         TitleRole,
         LastPositionRole,
         TimestampRole,
-        FormattedTimestampRole
+        FormattedTimestampRole,
+        FormattedPositionRole
     };
 
     // 重写基类方法
@@ -61,6 +62,9 @@ public:
     void updateItem(const QString &filePath, qint64 lastPosition);
     void removeItem(const QString &filePath);
     void clear();
+
+    // 辅助方法
+    QString formatPosition(qint64 position) const;
 
     // 获取项目信息
     QString getFilePath(int row) const;

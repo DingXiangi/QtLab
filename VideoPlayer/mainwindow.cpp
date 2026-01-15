@@ -25,6 +25,10 @@ MainWindow::MainWindow(QWidget *parent)
     , m_removeFromPlaylistButton(nullptr)
     , m_clearPlaylistButton(nullptr)
     , m_historyModel(nullptr)
+    , m_historyDock(nullptr)
+    , m_historyView(nullptr)
+    , m_removeFromHistoryButton(nullptr)
+    , m_clearHistoryButton(nullptr)
     , m_historyTimer(nullptr)
     , m_lastSavedPosition(0)
 {
@@ -37,6 +41,7 @@ MainWindow::MainWindow(QWidget *parent)
     setupUI();
     setupPlaylistUI();
     setupHistory();
+    setupHistoryUI();
     setupConnections();
     applyStyles();
 
@@ -180,6 +185,98 @@ void MainWindow::setupHistory()
     m_historyTimer->setInterval(5000);  // 5秒
     connect(m_historyTimer, &QTimer::timeout,
             this, &MainWindow::recordPlaybackProgress);
+}
+
+void MainWindow::setupHistoryUI()
+{
+    // 创建历史记录停靠窗口
+    m_historyDock = new QDockWidget(tr("播放历史"), this);
+    m_historyDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    m_historyDock->setMinimumWidth(200);
+    m_historyDock->setMaximumWidth(350);
+    m_historyDock->setFeatures(QDockWidget::DockWidgetClosable | QDockWidget::DockWidgetMovable);
+
+    // 创建停靠窗口的内容部件
+    QWidget *historyContents = new QWidget(m_historyDock);
+    QVBoxLayout *historyLayout = new QVBoxLayout(historyContents);
+    historyLayout->setContentsMargins(4, 4, 4, 4);
+    historyLayout->setSpacing(2);
+
+    // 创建历史记录视图
+    m_historyView = new QListView(historyContents);
+    m_historyView->setModel(m_historyModel);
+    m_historyView->setAlternatingRowColors(true);
+    m_historyView->setSelectionMode(QListView::SingleSelection);
+    m_historyView->setSelectionBehavior(QListView::SelectRows);
+    m_historyView->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_historyView->setStyleSheet(
+        "QListView {"
+        "    background-color: #2a2a2a;"
+        "    color: #e0e0e0;"
+        "    border: none;"
+        "    outline: none;"
+        "}"
+        ""
+        "QListView::item {"
+        "    height: 50px;"
+        "    padding-left: 6px;"
+        "    padding-right: 6px;"
+        "    border-bottom: 1px solid #333333;"
+        "}"
+        ""
+        "QListView::item:selected {"
+        "    background-color: #4a90d9;"
+        "    color: #ffffff;"
+        "}"
+        ""
+        "QListView::item:hover:!selected {"
+        "    background-color: #3a3a3a;"
+        "}"
+        );
+
+    // 创建按钮布局
+    QHBoxLayout *buttonLayout = new QHBoxLayout();
+    buttonLayout->setSpacing(4);
+
+    // 创建按钮
+    m_removeFromHistoryButton = new QPushButton(tr("移除"), historyContents);
+    m_clearHistoryButton = new QPushButton(tr("清空"), historyContents);
+
+    m_removeFromHistoryButton->setMinimumWidth(50);
+    m_clearHistoryButton->setMinimumWidth(50);
+
+    m_removeFromHistoryButton->setEnabled(false);
+    m_clearHistoryButton->setEnabled(false);
+
+    buttonLayout->addWidget(m_removeFromHistoryButton);
+    buttonLayout->addWidget(m_clearHistoryButton);
+    buttonLayout->addStretch();
+
+    // 添加到布局
+    historyLayout->addWidget(m_historyView);
+    historyLayout->addLayout(buttonLayout);
+
+    // 设置停靠窗口的内容
+    m_historyDock->setWidget(historyContents);
+
+    // 添加到主窗口（放在播放列表停靠窗口的右边）
+    QMainWindow::addDockWidget(Qt::RightDockWidgetArea, m_historyDock);
+
+    // 连接历史记录视图的信号
+    connect(m_removeFromHistoryButton, &QPushButton::clicked,
+            this, &MainWindow::removeFromHistory);
+    connect(m_clearHistoryButton, &QPushButton::clicked,
+            this, &MainWindow::clearHistory);
+    connect(m_historyView, &QListView::activated,
+            this, &MainWindow::onHistoryActivated);
+    connect(m_historyView, &QListView::doubleClicked,
+            this, &MainWindow::onHistoryDoubleClicked);
+    connect(m_historyModel, &HistoryModel::dataChanged,
+            this, &MainWindow::updateHistoryStatus);
+    connect(m_historyModel, &HistoryModel::rowsInserted,
+            this, &MainWindow::updateHistoryStatus);
+    connect(m_historyModel, &HistoryModel::rowsRemoved,
+            this, &MainWindow::updateHistoryStatus);
 }
 
 void MainWindow::loadHistoryFromFile()
@@ -626,6 +723,66 @@ void MainWindow::updatePlaylistStatus()
         if (currentRow >= 0) {
             QModelIndex modelIndex = m_playlistModel->index(currentRow);
             m_playlistView->setCurrentIndex(modelIndex);
+        }
+    }
+}
+
+void MainWindow::removeFromHistory()
+{
+    QModelIndex currentIndex = m_historyView->currentIndex();
+    if (currentIndex.isValid()) {
+        QString filePath = m_historyModel->getFilePath(currentIndex.row());
+        m_historyModel->removeItem(filePath);
+        saveHistoryToFile();
+        statusBar()->showMessage(tr("已从历史记录移除: %1").arg(QFileInfo(filePath).fileName()));
+    }
+}
+
+void MainWindow::clearHistory()
+{
+    if (m_historyModel->count() > 0) {
+        m_historyModel->clear();
+        saveHistoryToFile();
+        statusBar()->showMessage(tr("历史记录已清空"));
+    }
+}
+
+void MainWindow::onHistoryActivated(const QModelIndex &index)
+{
+    if (index.isValid()) {
+        QString filePath = m_historyModel->getFilePath(index.row());
+        if (!filePath.isEmpty()) {
+            playFile(filePath);
+            // 恢复播放进度
+            qint64 savedPosition = m_historyModel->getLastPosition(filePath);
+            if (savedPosition > 0) {
+                m_mediaPlayer->setPosition(savedPosition);
+                m_lastSavedPosition = savedPosition;
+            }
+        }
+    }
+}
+
+void MainWindow::onHistoryDoubleClicked(const QModelIndex &index)
+{
+    onHistoryActivated(index);
+}
+
+void MainWindow::updateHistoryStatus()
+{
+    // 更新移除按钮的状态
+    bool hasSelection = m_historyView->currentIndex().isValid();
+    m_removeFromHistoryButton->setEnabled(hasSelection);
+
+    // 更新清空按钮的状态
+    m_clearHistoryButton->setEnabled(m_historyModel->count() > 0);
+
+    // 如果有正在播放的文件，高亮显示
+    if (!m_currentFilePath.isEmpty()) {
+        int currentRow = m_historyModel->getIndex(m_currentFilePath);
+        if (currentRow >= 0) {
+            QModelIndex modelIndex = m_historyModel->index(currentRow);
+            m_historyView->setCurrentIndex(modelIndex);
         }
     }
 }

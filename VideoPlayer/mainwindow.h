@@ -49,6 +49,11 @@ private slots:
 
     // 历史记录相关槽函数
     void recordPlaybackProgress();
+    void removeFromHistory();
+    void clearHistory();
+    void onHistoryActivated(const QModelIndex &index);
+    void onHistoryDoubleClicked(const QModelIndex &index);
+    void updateHistoryStatus();
 
 private:
     Ui::MainWindow *ui;
@@ -82,6 +87,12 @@ private:
     // 历史记录数据模型
     HistoryModel *m_historyModel;
 
+    // 历史记录UI控件
+    QDockWidget *m_historyDock;
+    QListView *m_historyView;
+    QPushButton *m_removeFromHistoryButton;
+    QPushButton *m_clearHistoryButton;
+
     // 历史记录保存定时器
     QTimer *m_historyTimer;
 
@@ -109,6 +120,7 @@ private:
 
     // 历史记录辅助方法
     void setupHistory();
+    void setupHistoryUI();
     void loadHistoryFromFile();
     void saveHistoryToFile();
     void recordCurrentPosition();
