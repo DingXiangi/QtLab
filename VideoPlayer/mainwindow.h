@@ -110,6 +110,9 @@ private:
     // 待恢复的播放位置（用于媒体加载完成后恢复）
     qint64 m_pendingPosition;
 
+    // 是否在恢复位置后自动播放（从历史记录打开时使用）
+    bool m_autoPlayAfterSeek;
+
     void setupUI();
     void setupConnections();
     void applyStyles();
@@ -121,7 +124,7 @@ private:
     void setupPlaylistUI();
     void loadPlaylistFromFile();
     void savePlaylistToFile();
-    void playFile(const QString &filePath);
+    void playFile(const QString &filePath, bool autoPlay = false);
 
     // 历史记录辅助方法
     void setupHistory();
@@ -131,4 +134,3 @@ private:
     void recordCurrentPosition();
 };
 #endif // MAINWINDOW_H
-
