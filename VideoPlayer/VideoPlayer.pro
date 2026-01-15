@@ -12,14 +12,14 @@ SOURCES += \
     main.cpp \
     mainwindow.cpp \
     databasemanager.cpp \
-    playlistmodel.cpp \
-    filescanner.cpp
+    filescanner.cpp \
+    playlistmodel.cpp
 
 HEADERS += \
     mainwindow.h \
     databasemanager.h \
-    playlistmodel.h \
-    filescanner.h
+    filescanner.h \
+    playlistmodel.h
 
 FORMS += \
     mainwindow.ui
