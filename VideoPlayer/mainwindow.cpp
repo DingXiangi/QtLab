@@ -5,11 +5,12 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QStyle>
+#include <QSignalBlocker>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
-    , m_isSliderDown(false)
+    , m_seekBarDown(false)
 {
     ui->setupUi(this);
 
@@ -69,9 +70,12 @@ void MainWindow::setupConnections()
     connect(m_backwardButton, &QPushButton::clicked, this, &MainWindow::seekBackward);
 
     // 连接进度条信号
-    connect(m_positionSlider, &QSlider::valueChanged, this, &MainWindow::seek);
-    connect(m_positionSlider, &QSlider::sliderPressed, this, &MainWindow::sliderPressed);
-    connect(m_positionSlider, &QSlider::sliderReleased, this, &MainWindow::sliderReleased);
+    connect(m_positionSlider, &QSlider::valueChanged,
+            this, &MainWindow::onPositionSliderValueChanged);
+    connect(m_positionSlider, &QSlider::sliderPressed,
+            this, &MainWindow::onSliderPressed);
+    connect(m_positionSlider, &QSlider::sliderReleased,
+            this, &MainWindow::onSliderReleased);
 
     // 连接媒体播放器信号
     connect(m_mediaPlayer, &QMediaPlayer::positionChanged,
@@ -232,39 +236,57 @@ void MainWindow::seekBackward()
     statusBar()->showMessage(tr("快退至 %1").arg(m_positionLabel->text()));
 }
 
-void MainWindow::seek(int position)
+void MainWindow::onPositionSliderValueChanged(int value)
+{
+    // 拖动时不处理
+    if (m_seekBarDown) {
+        return;
+    }
+    doSeek(value);
+}
+
+void MainWindow::onSliderPressed()
+{
+    m_seekBarDown = true;
+}
+
+void MainWindow::onSliderReleased()
+{
+    m_seekBarDown = false;
+    doSeek(m_positionSlider->value());
+}
+
+void MainWindow::doSeek(int value)
 {
     // 计算目标位置
-    if (m_mediaPlayer->duration() > 0) {
-        qint64 targetPosition = static_cast<qint64>((static_cast<double>(position) / 100) *
-                                                    m_mediaPlayer->duration());
-        m_mediaPlayer->setPosition(targetPosition);
+    qint64 duration = m_mediaPlayer->duration();
+    if (duration <= 0) {
+        return;
     }
-}
 
-void MainWindow::sliderPressed()
-{
-    m_isSliderDown = true;
-}
-
-void MainWindow::sliderReleased()
-{
-    m_isSliderDown = false;
-    // 拖动结束后同步位置
-    seek(m_positionSlider->value());
+    qint64 targetPosition = static_cast<qint64>(
+        (static_cast<double>(value) / 100.0) * duration);
+    m_mediaPlayer->setPosition(targetPosition);
 }
 
 void MainWindow::positionChanged(qint64 position)
 {
-    // 如果用户正在拖动滑块，不更新位置
-    if (m_isSliderDown) {
+    qint64 duration = m_mediaPlayer->duration();
+    if (duration <= 0) {
         return;
     }
 
-    // 更新进度条
-    if (m_mediaPlayer->duration() > 0) {
-        int sliderValue = static_cast<int>((static_cast<double>(position) /
-                                            m_mediaPlayer->duration()) * 100);
+    // 拖动时不更新
+    if (m_seekBarDown) {
+        return;
+    }
+
+    // 计算进度条值
+    int sliderValue = static_cast<int>((static_cast<double>(position) / duration) * 100);
+
+    // 临时阻塞信号，防止循环
+    {
+        QSignalBlocker blocker(m_positionSlider);
         m_positionSlider->setValue(sliderValue);
     }
 
