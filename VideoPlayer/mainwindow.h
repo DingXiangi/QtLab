@@ -10,8 +10,10 @@
 #include <QListView>
 #include <QDockWidget>
 #include <QList>
+#include <QTimer>
 
 #include "playlistmodel.h"
+#include "historymodel.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -45,6 +47,9 @@ private slots:
     void onPlaylistDoubleClicked(const QModelIndex &index);
     void updatePlaylistStatus();
 
+    // 历史记录相关槽函数
+    void recordPlaybackProgress();
+
 private:
     Ui::MainWindow *ui;
 
@@ -74,11 +79,20 @@ private:
     // 播放列表数据模型
     PlaylistModel *m_playlistModel;
 
+    // 历史记录数据模型
+    HistoryModel *m_historyModel;
+
+    // 历史记录保存定时器
+    QTimer *m_historyTimer;
+
     // 标记是否正在拖动进度条
     bool m_seekBarDown;
 
     // 当前播放文件路径
     QString m_currentFilePath;
+
+    // 最后保存的播放位置（用于避免重复保存）
+    qint64 m_lastSavedPosition;
 
     void setupUI();
     void setupConnections();
@@ -92,5 +106,11 @@ private:
     void loadPlaylistFromFile();
     void savePlaylistToFile();
     void playFile(const QString &filePath);
+
+    // 历史记录辅助方法
+    void setupHistory();
+    void loadHistoryFromFile();
+    void saveHistoryToFile();
+    void recordCurrentPosition();
 };
 #endif // MAINWINDOW_H

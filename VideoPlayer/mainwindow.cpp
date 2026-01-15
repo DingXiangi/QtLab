@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
+#include <Qt>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFileDialog>
@@ -12,7 +13,6 @@
 #include <QJsonObject>
 #include <QFile>
 #include <QDir>
-#include <Qt>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -24,6 +24,9 @@ MainWindow::MainWindow(QWidget *parent)
     , m_addToPlaylistButton(nullptr)
     , m_removeFromPlaylistButton(nullptr)
     , m_clearPlaylistButton(nullptr)
+    , m_historyModel(nullptr)
+    , m_historyTimer(nullptr)
+    , m_lastSavedPosition(0)
 {
     ui->setupUi(this);
 
@@ -33,15 +36,22 @@ MainWindow::MainWindow(QWidget *parent)
 
     setupUI();
     setupPlaylistUI();
+    setupHistory();
     setupConnections();
     applyStyles();
 
     // 加载保存的播放列表
     loadPlaylistFromFile();
+    // 加载历史记录
+    loadHistoryFromFile();
 }
 
 MainWindow::~MainWindow()
 {
+    // 保存当前播放进度
+    recordCurrentPosition();
+    // 保存历史记录
+    saveHistoryToFile();
     delete ui;
 }
 
@@ -156,8 +166,93 @@ void MainWindow::setupPlaylistUI()
     // 设置停靠窗口的内容
     m_playlistDock->setWidget(playlistContents);
 
-    // 添加到主窗口
-    addDockWidget(Qt::LeftDockWidgetArea, m_playlistDock);
+    // 添加到主窗口 - 使用显式类型转换确保正确解析
+    QMainWindow::addDockWidget(static_cast<Qt::DockWidgetArea>(Qt::LeftDockWidgetArea), m_playlistDock);
+}
+
+void MainWindow::setupHistory()
+{
+    // 创建历史记录模型
+    m_historyModel = new HistoryModel(this);
+
+    // 创建历史记录保存定时器（每5秒保存一次）
+    m_historyTimer = new QTimer(this);
+    m_historyTimer->setInterval(5000);  // 5秒
+    connect(m_historyTimer, &QTimer::timeout,
+            this, &MainWindow::recordPlaybackProgress);
+}
+
+void MainWindow::loadHistoryFromFile()
+{
+    QString historyPath = QDir::homePath() + "/.videoplayer_history.json";
+    QFile file(historyPath);
+
+    if (file.exists() && file.open(QIODevice::ReadOnly)) {
+        QByteArray jsonData = file.readAll();
+        file.close();
+
+        QJsonDocument doc = QJsonDocument::fromJson(jsonData);
+        if (doc.isArray()) {
+            QJsonArray array = doc.array();
+            for (const QJsonValue &value : array) {
+                if (value.isObject()) {
+                    QJsonObject obj = value.toObject();
+                    QString filePath = obj["filePath"].toString();
+                    qint64 lastPosition = static_cast<qint64>(obj["lastPosition"].toInt());
+
+                    // 检查文件是否存在
+                    if (QFile::exists(filePath)) {
+                        m_historyModel->addItem(filePath, lastPosition);
+                    }
+                }
+            }
+        }
+    }
+}
+
+void MainWindow::saveHistoryToFile()
+{
+    QString historyPath = QDir::homePath() + "/.videoplayer_history.json";
+    QFile file(historyPath);
+
+    if (file.open(QIODevice::WriteOnly)) {
+        QJsonArray array;
+        for (int i = 0; i < m_historyModel->count(); ++i) {
+            QJsonObject obj;
+            obj["filePath"] = m_historyModel->getFilePath(i);
+            obj["lastPosition"] = static_cast<qint64>(m_historyModel->getLastPosition(i));
+            array.append(obj);
+        }
+
+        QJsonDocument doc(array);
+        file.write(doc.toJson(QJsonDocument::Indented));
+        file.close();
+    }
+}
+
+void MainWindow::recordCurrentPosition()
+{
+    if (!m_currentFilePath.isEmpty() && m_mediaPlayer) {
+        m_historyModel->addItem(m_currentFilePath, m_mediaPlayer->position());
+        m_lastSavedPosition = m_mediaPlayer->position();
+    }
+}
+
+void MainWindow::recordPlaybackProgress()
+{
+    // 只有在播放时才记录
+    if (m_mediaPlayer->playbackState() != QMediaPlayer::PlayingState) {
+        return;
+    }
+
+    // 只有位置变化超过1秒才保存，减少频繁IO
+    qint64 currentPos = m_mediaPlayer->position();
+    if (qAbs(currentPos - m_lastSavedPosition) >= 1000) {
+        if (!m_currentFilePath.isEmpty()) {
+            m_historyModel->addItem(m_currentFilePath, currentPos);
+            m_lastSavedPosition = currentPos;
+        }
+    }
 }
 
 void MainWindow::setupConnections()
@@ -302,14 +397,20 @@ void MainWindow::openFile()
         );
 
     if (!filePath.isEmpty()) {
-        m_mediaPlayer->setSource(QUrl::fromLocalFile(filePath));
-        m_playButton->setEnabled(true);
-        m_stopButton->setEnabled(true);
-        m_forwardButton->setEnabled(true);
-        m_backwardButton->setEnabled(true);
-        m_positionSlider->setEnabled(true);
-        m_playButton->setText(tr("播放"));
-        statusBar()->showMessage(tr("已加载: %1").arg(QFileInfo(filePath).fileName()));
+        // 保存上一个文件的播放进度
+        if (!m_currentFilePath.isEmpty() && m_mediaPlayer) {
+            m_historyModel->addItem(m_currentFilePath, m_mediaPlayer->position());
+        }
+
+        // 调用playFile来加载新文件（会自动恢复播放进度）
+        playFile(filePath);
+
+        // 如果有历史记录，恢复播放位置
+        qint64 savedPosition = m_historyModel->getLastPosition(filePath);
+        if (savedPosition > 0) {
+            m_mediaPlayer->setPosition(savedPosition);
+            m_lastSavedPosition = savedPosition;
+        }
     }
 }
 
@@ -319,12 +420,14 @@ void MainWindow::play()
     case QMediaPlayer::PlayingState:
         m_mediaPlayer->pause();
         m_playButton->setText(tr("播放"));
+        m_historyTimer->stop();  // 暂停时停止定时器
         statusBar()->showMessage(tr("已暂停"));
         break;
     case QMediaPlayer::PausedState:
     case QMediaPlayer::StoppedState:
         m_mediaPlayer->play();
         m_playButton->setText(tr("暂停"));
+        m_historyTimer->start();  // 开始播放时启动定时器
         statusBar()->showMessage(tr("正在播放"));
         break;
     }
@@ -332,10 +435,14 @@ void MainWindow::play()
 
 void MainWindow::stop()
 {
+    // 停止前先保存当前播放进度
+    recordCurrentPosition();
+
     m_mediaPlayer->stop();
     m_playButton->setText(tr("播放"));
     m_positionSlider->setValue(0);
     m_positionLabel->setText("00:00");
+    m_historyTimer->stop();  // 停止时停止定时器
     statusBar()->showMessage(tr("已停止"));
 }
 
@@ -567,8 +674,22 @@ void MainWindow::savePlaylistToFile()
 
 void MainWindow::playFile(const QString &filePath)
 {
+    // 保存上一个文件的播放进度
+    if (!m_currentFilePath.isEmpty() && m_mediaPlayer) {
+        m_historyModel->addItem(m_currentFilePath, m_mediaPlayer->position());
+    }
+
     m_currentFilePath = filePath;
     m_mediaPlayer->setSource(QUrl::fromLocalFile(filePath));
+
+    // 检查是否有历史记录，有则恢复播放进度
+    qint64 savedPosition = m_historyModel->getLastPosition(filePath);
+    if (savedPosition > 0) {
+        m_mediaPlayer->setPosition(savedPosition);
+        m_lastSavedPosition = savedPosition;
+    } else {
+        m_lastSavedPosition = 0;
+    }
 
     m_playButton->setEnabled(true);
     m_stopButton->setEnabled(true);
