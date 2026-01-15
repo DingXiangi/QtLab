@@ -4,6 +4,7 @@
 #include <QHBoxLayout>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QStyle>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -13,9 +14,11 @@ MainWindow::MainWindow(QWidget *parent)
 
     setWindowTitle(tr("简易视频播放器"));
     resize(900, 650);
+    setMinimumSize(600, 400);
 
     setupUI();
     setupConnections();
+    applyStyles();
 }
 
 MainWindow::~MainWindow()
@@ -57,6 +60,98 @@ void MainWindow::setupConnections()
     connect(m_openButton, &QPushButton::clicked, this, &MainWindow::openFile);
     connect(m_playButton, &QPushButton::clicked, this, &MainWindow::play);
     connect(m_stopButton, &QPushButton::clicked, this, &MainWindow::stop);
+
+    // 连接媒体播放器信号
+    connect(m_mediaPlayer, &QMediaPlayer::positionChanged,
+            this, &MainWindow::positionChanged);
+    connect(m_mediaPlayer, &QMediaPlayer::durationChanged,
+            this, &MainWindow::durationChanged);
+}
+
+void MainWindow::applyStyles()
+{
+    // 设置主窗口样式
+    setStyleSheet(
+        "QMainWindow {"
+        "    background-color: #1a1a1a;"
+        "}"
+        ""
+        "QWidget {"
+        "    background-color: #1a1a1a;"
+        "    color: #e0e0e0;"
+        "    font-family: Microsoft YaHei, Arial;"
+        "    font-size: 13px;"
+        "}"
+        ""
+        "QMenuBar {"
+        "    background-color: #2a2a2a;"
+        "    color: #e0e0e0;"
+        "    border-bottom: 1px solid #3a3a3a;"
+        "    padding: 4px;"
+        "}"
+        ""
+        "QStatusBar {"
+        "    background-color: #2a2a2a;"
+        "    color: #999999;"
+        "    border-top: 1px solid #3a3a3a;"
+        "}"
+        ""
+        "QVideoWidget {"
+        "    background-color: #000000;"
+        "}"
+        ""
+        "QPushButton {"
+        "    background-color: #3a3a3a;"
+        "    color: #e0e0e0;"
+        "    border-radius: 4px;"
+        "    padding: 6px 12px;"
+        "    border: 1px solid #4a4a4a;"
+        "    min-width: 70px;"
+        "}"
+        ""
+        "QPushButton:hover {"
+        "    background-color: #4a4a4a;"
+        "    border-color: #5a5a5a;"
+        "}"
+        ""
+        "QPushButton:pressed {"
+        "    background-color: #2a2a2a;"
+        "}"
+        ""
+        "QPushButton:disabled {"
+        "    background-color: #2a2a2a;"
+        "    color: #666666;"
+        "    border-color: #3a3a3a;"
+        "}"
+        ""
+        "QSlider::groove:horizontal {"
+        "    background-color: #3a3a3a;"
+        "    height: 6px;"
+        "    border-radius: 3px;"
+        "}"
+        ""
+        "QSlider::sub-page:horizontal {"
+        "    background-color: #4a90d9;"
+        "    border-radius: 3px;"
+        "}"
+        ""
+        "QSlider::handle:horizontal {"
+        "    background-color: #e0e0e0;"
+        "    width: 14px;"
+        "    height: 14px;"
+        "    margin: -4px 0;"
+        "    border-radius: 7px;"
+        "}"
+        ""
+        "QSlider::handle:horizontal:hover {"
+        "    background-color: #ffffff;"
+        "}"
+        ""
+        "QLabel {"
+        "    color: #aaaaaa;"
+        "    font-size: 12px;"
+        "}"
+        );
 }
 
 void MainWindow::openFile()
@@ -84,17 +179,16 @@ void MainWindow::play()
     case QMediaPlayer::PlayingState:
         m_mediaPlayer->pause();
         m_playButton->setText(tr("播放"));
+        statusBar()->showMessage(tr("已暂停"));
         break;
     case QMediaPlayer::PausedState:
     case QMediaPlayer::StoppedState:
         m_mediaPlayer->play();
         m_playButton->setText(tr("暂停"));
+        statusBar()->showMessage(tr("正在播放"));
         break;
     }
 }
-
-
-
 
 void MainWindow::stop()
 {
@@ -102,4 +196,51 @@ void MainWindow::stop()
     m_playButton->setText(tr("播放"));
     m_positionSlider->setValue(0);
     m_positionLabel->setText("00:00");
+    statusBar()->showMessage(tr("已停止"));
 }
+
+void MainWindow::positionChanged(qint64 position)
+{
+    // 更新进度条
+    if (m_mediaPlayer->duration() > 0) {
+        int sliderValue = static_cast<int>((static_cast<double>(position) /
+                                            m_mediaPlayer->duration()) * 100);
+        m_positionSlider->setValue(sliderValue);
+    }
+
+    // 更新时间标签
+    updatePositionLabel(position);
+}
+
+void MainWindow::durationChanged(qint64 duration)
+{
+    // 更新时间标签
+    updateDurationLabel(duration);
+}
+
+void MainWindow::updatePositionLabel(qint64 position)
+{
+    qint64 seconds = position / 1000;
+    qint64 minutes = seconds / 60;
+    seconds = seconds % 60;
+
+    QString timeStr = QString("%1:%2")
+                          .arg(minutes, 2, 10, QChar('0'))
+                          .arg(seconds, 2, 10, QChar('0'));
+
+    m_positionLabel->setText(timeStr);
+}
+
+void MainWindow::updateDurationLabel(qint64 duration)
+{
+    qint64 seconds = duration / 1000;
+    qint64 minutes = seconds / 60;
+    seconds = seconds % 60;
+
+    QString timeStr = QString("%1:%2")
+                          .arg(minutes, 2, 10, QChar('0'))
+                          .arg(seconds, 2, 10, QChar('0'));
+
+    m_durationLabel->setText(timeStr);
+}
+

@@ -24,6 +24,8 @@ private slots:
     void openFile();
     void play();
     void stop();
+    void positionChanged(qint64 position);
+    void durationChanged(qint64 duration);
 
 private:
     Ui::MainWindow *ui;
@@ -44,5 +46,9 @@ private:
 
     void setupUI();
     void setupConnections();
+    void applyStyles();
+    void updatePositionLabel(qint64 position);
+    void updateDurationLabel(qint64 duration);
 };
 #endif // MAINWINDOW_H
+
