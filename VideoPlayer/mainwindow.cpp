@@ -9,6 +9,7 @@
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
+    , m_isSliderDown(false)
 {
     ui->setupUi(this);
 
@@ -66,6 +67,11 @@ void MainWindow::setupConnections()
     connect(m_stopButton, &QPushButton::clicked, this, &MainWindow::stop);
     connect(m_forwardButton, &QPushButton::clicked, this, &MainWindow::seekForward);
     connect(m_backwardButton, &QPushButton::clicked, this, &MainWindow::seekBackward);
+
+    // 连接进度条信号
+    connect(m_positionSlider, &QSlider::valueChanged, this, &MainWindow::seek);
+    connect(m_positionSlider, &QSlider::sliderPressed, this, &MainWindow::sliderPressed);
+    connect(m_positionSlider, &QSlider::sliderReleased, this, &MainWindow::sliderReleased);
 
     // 连接媒体播放器信号
     connect(m_mediaPlayer, &QMediaPlayer::positionChanged,
@@ -226,8 +232,35 @@ void MainWindow::seekBackward()
     statusBar()->showMessage(tr("快退至 %1").arg(m_positionLabel->text()));
 }
 
+void MainWindow::seek(int position)
+{
+    // 计算目标位置
+    if (m_mediaPlayer->duration() > 0) {
+        qint64 targetPosition = static_cast<qint64>((static_cast<double>(position) / 100) *
+                                                    m_mediaPlayer->duration());
+        m_mediaPlayer->setPosition(targetPosition);
+    }
+}
+
+void MainWindow::sliderPressed()
+{
+    m_isSliderDown = true;
+}
+
+void MainWindow::sliderReleased()
+{
+    m_isSliderDown = false;
+    // 拖动结束后同步位置
+    seek(m_positionSlider->value());
+}
+
 void MainWindow::positionChanged(qint64 position)
 {
+    // 如果用户正在拖动滑块，不更新位置
+    if (m_isSliderDown) {
+        return;
+    }
+
     // 更新进度条
     if (m_mediaPlayer->duration() > 0) {
         int sliderValue = static_cast<int>((static_cast<double>(position) /

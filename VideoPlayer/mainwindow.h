@@ -26,6 +26,9 @@ private slots:
     void stop();
     void seekForward();
     void seekBackward();
+    void seek(int position);
+    void sliderPressed();
+    void sliderReleased();
     void positionChanged(qint64 position);
     void durationChanged(qint64 duration);
 
@@ -48,6 +51,9 @@ private:
     QLabel *m_positionLabel;
     QLabel *m_durationLabel;
 
+    // 标记进度条是否正在被拖动
+    bool m_isSliderDown;
+
     void setupUI();
     void setupConnections();
     void applyStyles();
@@ -55,4 +61,3 @@ private:
     void updateDurationLabel(qint64 duration);
 };
 #endif // MAINWINDOW_H
-
