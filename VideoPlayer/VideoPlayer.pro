@@ -9,16 +9,14 @@ CONFIG += c++17
 #DEFINES += QT_DISABLE_DEPRECATED_BEFORE=0x060000    # disables all the APIs deprecated before Qt 6.0.0
 
 SOURCES += \
+    historymodel.cpp \
     main.cpp \
     mainwindow.cpp \
-    databasemanager.cpp \
-    filescanner.cpp \
     playlistmodel.cpp
 
 HEADERS += \
+    historymodel.h \
     mainwindow.h \
-    databasemanager.h \
-    filescanner.h \
     playlistmodel.h
 
 FORMS += \
