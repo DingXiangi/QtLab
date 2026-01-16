@@ -8,6 +8,7 @@
 #include <QStyle>
 #include <QSignalBlocker>
 #include <QScrollBar>
+#include <QTimer>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -406,24 +407,22 @@ void MainWindow::setupConnections()
     connect(m_mediaPlayer, &QMediaPlayer::durationChanged,
             this, &MainWindow::durationChanged);
 
-    // 连接媒体状态变化信号，用于恢复播放进度
-    connect(m_mediaPlayer, &QMediaPlayer::mediaStatusChanged,
-            this, [this](QMediaPlayer::MediaStatus status) {
-                if (status == QMediaPlayer::LoadedMedia) {
-                    if (m_pendingPosition >= 0) {
-                        m_mediaPlayer->setPosition(m_pendingPosition);
-                        m_lastSavedPosition = m_pendingPosition;
-                        m_pendingPosition = -1;
-                    }
-                    // 如果需要自动播放（从历史记录打开）
-                    if (m_autoPlayAfterSeek) {
-                        m_mediaPlayer->play();
-                        m_playButton->setText(tr("暂停"));
-                        statusBar()->showMessage(tr("正在播放"));
-                        m_autoPlayAfterSeek = false;
-                    }
+    // 使用playbackStateChanged信号来恢复历史记录播放位置
+    // 当视频开始播放后，延迟设置位置确保视频已准备好
+    connect(m_mediaPlayer, &QMediaPlayer::playbackStateChanged,
+            this, [this](QMediaPlayer::PlaybackState state) {
+                if (state == QMediaPlayer::PlayingState && m_pendingPosition > 0) {
+                    // 使用单次定时器延迟设置位置，给视频更多加载时间
+                    QTimer::singleShot(300, this, [this]() {
+                        if (m_pendingPosition > 0) {
+                            m_mediaPlayer->setPosition(m_pendingPosition);
+                            m_pendingPosition = -1;
+                        }
+                    });
                 }
             });
+
+    // 移除durationChanged的恢复逻辑，改用更可靠的playbackStateChanged方案
 
     // 连接播放列表信号
     connect(m_addToPlaylistButton, &QPushButton::clicked,
@@ -864,31 +863,43 @@ void MainWindow::savePlaylistToFile()
 
 void MainWindow::playFile(const QString &filePath, bool autoPlay)
 {
-    // 保存上一个文件的播放进度
-    if (!m_currentFilePath.isEmpty() && m_mediaPlayer) {
+    // 如果有正在播放的文件，先保存其进度
+    if (!m_currentFilePath.isEmpty() && m_mediaPlayer &&
+        m_currentFilePath != filePath) {
         qint64 lastPos = m_mediaPlayer->position();
-        m_historyModel->addItem(m_currentFilePath, lastPos);
-        m_lastSavedPosition = lastPos;
-        saveHistoryToFile();  // 立即保存
+        if (lastPos > 0) {
+            m_historyModel->addItem(m_currentFilePath, lastPos);
+            saveHistoryToFile();
+        }
     }
+
+    // 立即将新文件添加到历史记录顶部（无论是否切换文件）
+    // 如果是从历史记录打开，使用保存的位置；否则使用当前位置
+    qint64 savedPos = 0;
+    if (autoPlay) {
+        // 从历史记录打开，使用保存的位置
+        savedPos = m_historyModel->getLastPosition(filePath);
+    } else if (m_currentFilePath == filePath && m_mediaPlayer) {
+        // 继续播放同一文件，使用当前位置
+        savedPos = m_mediaPlayer->position();
+    }
+    m_historyModel->addItem(filePath, savedPos);
+    // 立即刷新历史记录UI
+    updateHistoryStatus();
 
     m_currentFilePath = filePath;
     m_mediaPlayer->setSource(QUrl::fromLocalFile(filePath));
 
-    // 检查是否有历史记录
-    qint64 savedPosition = m_historyModel->getLastPosition(filePath);
-
     if (autoPlay) {
-        // 从历史记录打开，需要自动播放并恢复位置
-        m_pendingPosition = savedPosition > 0 ? savedPosition : 0;
-        m_lastSavedPosition = m_pendingPosition;
-        m_autoPlayAfterSeek = true;
+        // 从历史记录打开，恢复播放位置
+        qint64 savedPos = m_historyModel->getLastPosition(filePath);
+        m_pendingPosition = savedPos;
+        // 自动开始播放
+        m_mediaPlayer->play();
+        m_playButton->setText(tr("暂停"));
+        statusBar()->showMessage(tr("正在播放"));
     } else {
-        // 普通打开，不自动播放
         m_pendingPosition = -1;
-        m_lastSavedPosition = 0;
-        m_autoPlayAfterSeek = false;
-        // 设置初始按钮状态为"播放"
         m_playButton->setText(tr("播放"));
     }
 
@@ -898,11 +909,9 @@ void MainWindow::playFile(const QString &filePath, bool autoPlay)
     m_backwardButton->setEnabled(true);
     m_positionSlider->setEnabled(true);
 
-    // 更新历史记录UI状态（高亮当前播放的文件）
+    // 更新历史记录UI状态
     updateHistoryStatus();
 
     QFileInfo fileInfo(filePath);
     statusBar()->showMessage(tr("已加载: %1").arg(fileInfo.fileName()));
 }
-
-

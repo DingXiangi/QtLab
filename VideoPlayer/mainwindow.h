@@ -11,8 +11,9 @@
 #include <QListView>
 #include <QDockWidget>
 #include <QList>
-#include <QTimer>
 #include <QSet>
+#include <QTimer>
+
 #include "playlistmodel.h"
 #include "historymodel.h"
 
