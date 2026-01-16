@@ -17,9 +17,8 @@
 #include <QTextStream>
 #include <QFileDialog>
 #include <QRegularExpression>
-#include <QSqlDatabase>
-#include <QSqlQuery>
-#include <QSqlError>
+#include <QThread>
+#include <QObject>
 
 #include "playlistmodel.h"
 #include "historymodel.h"
@@ -27,6 +26,28 @@
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
 QT_END_NAMESPACE
+
+// 字幕解析Worker类（用于后台线程处理）
+class SubtitleParserWorker : public QObject
+{
+    Q_OBJECT
+
+public:
+    explicit SubtitleParserWorker(QObject *parent = nullptr) : QObject(parent) {}
+
+public slots:
+    void parseSubtitle(const QString &filePath);
+
+signals:
+    void parseFinished(const QList<QVariant> &items, const QString &filePath);
+    void parseError(const QString &error);
+
+private:
+    qint64 parseSrtTime(const QString &timeStr);
+};
+
+// Worker类的辅助函数（需要放在类外部）
+qint64 parseSrtTimeHelper(const QString &timeStr);
 
 class MainWindow : public QMainWindow
 {
@@ -68,6 +89,8 @@ private slots:
     void loadSubtitle();
     void clearSubtitle();
     void updateSubtitle(qint64 position);
+    void onSubtitleParsed(const QList<QVariant> &items, const QString &filePath);
+    void onSubtitleParseError(const QString &error);
 
 private:
     Ui::MainWindow *ui;
@@ -135,6 +158,11 @@ private:
     };
     QList<SubtitleItem> m_subtitles;  // 字幕列表
     QString m_currentSubtitleFile;    // 当前字幕文件路径
+    bool m_subtitleLoading;           // 是否正在加载字幕
+
+    // 多线程相关成员变量
+    QThread *m_subtitleThread;        // 字幕解析线程
+    SubtitleParserWorker *m_subtitleWorker;  // 字幕解析Worker对象
 
     void setupUI();
     void setupConnections();
@@ -150,23 +178,21 @@ private:
     void playFile(const QString &filePath, bool autoPlay = false);
 
     // 历史记录辅助方法
-    // 历史记录数据库
-    QSqlDatabase m_historyDb;  // SQLite数据库连接
+    // 历史记录JSON文件路径
+    QString m_historyFilePath;
 
     void setupHistory();
     void setupHistoryUI();
-    void loadHistoryFromDatabase();
-    void saveHistoryToDatabase();
-    void loadHistoryFromJson(const QString &jsonPath);
-    void saveHistoryToJson();
+    void loadHistory();
+    void saveHistory();
     void recordCurrentPosition();
 
     // 字幕辅助方法
     void setupSubtitleUI();
-    void parseSrtFile(const QString &filePath);
-    qint64 parseSrtTime(const QString &timeStr);
     QString filterSubtitleTags(const QString &text);
     void showSubtitle(qint64 position);
+    void startSubtitleLoading();
+    void stopSubtitleLoading();
+    void setupSubtitleThread();
 };
 #endif // MAINWINDOW_H
-

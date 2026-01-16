@@ -36,6 +36,9 @@ MainWindow::MainWindow(QWidget *parent)
     , m_pendingPosition(-1)
     , m_autoPlayAfterSeek(false)
     , m_subtitleLabel(nullptr)
+    , m_subtitleLoading(false)
+    , m_subtitleThread(nullptr)
+    , m_subtitleWorker(nullptr)
 {
     ui->setupUi(this);
 
@@ -48,22 +51,67 @@ MainWindow::MainWindow(QWidget *parent)
     setupHistory();
     setupHistoryUI();
     setupSubtitleUI();
+    setupSubtitleThread();  // 初始化字幕解析线程
     setupConnections();
     applyStyles();
 
     // 加载保存的播放列表
     loadPlaylistFromFile();
-    // 从SQLite数据库加载历史记录
-    loadHistoryFromDatabase();
+    // 从JSON文件加载历史记录
+    loadHistory();
 }
 
 MainWindow::~MainWindow()
 {
+    // 停止字幕解析线程
+    stopSubtitleLoading();
     // 保存当前播放进度
     recordCurrentPosition();
-    // 保存历史记录到SQLite数据库
-    saveHistoryToDatabase();
+    // 保存历史记录到JSON文件
+    saveHistory();
     delete ui;
+}
+
+void MainWindow::setupSubtitleThread()
+{
+    // 创建字幕解析线程
+    m_subtitleThread = new QThread(this);
+    m_subtitleWorker = new SubtitleParserWorker();
+
+    // 将Worker移动到线程中
+    m_subtitleWorker->moveToThread(m_subtitleThread);
+
+    // 连接信号槽
+    connect(m_subtitleThread, &QThread::finished,
+            m_subtitleWorker, &QObject::deleteLater);
+    connect(m_subtitleWorker, &SubtitleParserWorker::parseFinished,
+            this, &MainWindow::onSubtitleParsed);
+    connect(m_subtitleWorker, &SubtitleParserWorker::parseError,
+            this, &MainWindow::onSubtitleParseError);
+
+    // 启动线程
+    m_subtitleThread->start();
+    qDebug() << "字幕解析线程已启动";
+}
+
+void MainWindow::startSubtitleLoading()
+{
+    m_subtitleLoading = true;
+    statusBar()->showMessage(tr("正在加载字幕..."));
+}
+
+void MainWindow::stopSubtitleLoading()
+{
+    m_subtitleLoading = false;
+    if (m_subtitleThread && m_subtitleThread->isRunning()) {
+        m_subtitleThread->quit();
+        m_subtitleThread->wait(3000);  // 等待最多3秒
+        if (m_subtitleThread->isRunning()) {
+            m_subtitleThread->terminate();
+            m_subtitleThread->wait();
+        }
+        qDebug() << "字幕解析线程已停止";
+    }
 }
 
 void MainWindow::setupUI()
@@ -231,6 +279,9 @@ void MainWindow::setupHistory()
     // 创建历史记录模型
     m_historyModel = new HistoryModel(this);
 
+    // 设置历史记录JSON文件路径
+    m_historyFilePath = QDir::homePath() + "/.videoplayer_history.json";
+
     // 创建历史记录保存定时器（每5秒保存一次）
     m_historyTimer = new QTimer(this);
     m_historyTimer->setInterval(5000);  // 5秒
@@ -330,81 +381,10 @@ void MainWindow::setupHistoryUI()
             this, &MainWindow::updateHistoryStatus);
 }
 
-void MainWindow::loadHistoryFromDatabase()
+void MainWindow::loadHistory()
 {
-    // 数据库路径：使用Windows标准路径
-    QString dbPath = "D:\\QTLab\\VideoPlayer\\videoplayer_history.db";
-
-    // 确保目录存在
-    QDir dir(QFileInfo(dbPath).absolutePath());
-    if (!dir.exists()) {
-        bool created = dir.mkpath(".");
-        qDebug() << "创建目录结果:" << created;
-    }
-
-    // 列出可用的SQL驱动
-    QStringList availableDrivers = QSqlDatabase::drivers();
-    qDebug() << "可用的SQL驱动:" << availableDrivers;
-
-    // 尝试使用SQLite数据库
-    bool useDatabase = true;
-
-    // 检查SQLite驱动是否可用
-    if (QSqlDatabase::isDriverAvailable("QSQLITE")) {
-        qDebug() << "QSQLITE驱动可用，创建数据库连接";
-        m_historyDb = QSqlDatabase::addDatabase("QSQLITE", "history_conn");
-    } else {
-        qDebug() << "QSQLITE驱动不可用，使用JSON文件存储";
-        useDatabase = false;
-    }
-
-    if (useDatabase && m_historyDb.isValid()) {
-        qDebug() << "设置数据库路径:" << dbPath;
-        m_historyDb.setDatabaseName(dbPath);
-
-        if (m_historyDb.open()) {
-            qDebug() << "数据库打开成功";
-            // 创建表（如果不存在）
-            QSqlQuery query(m_historyDb);
-            query.exec("CREATE TABLE IF NOT EXISTS history ("
-                       "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                       "filePath TEXT NOT NULL UNIQUE, "
-                       "lastPosition INTEGER DEFAULT 0, "
-                       "updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
-
-            // 查询所有历史记录
-            query.exec("SELECT filePath, lastPosition FROM history ORDER BY updatedAt DESC");
-
-            // 收集结果并添加到模型
-            QSet<QString> addedPaths;
-            while (query.next()) {
-                QString filePath = query.value("filePath").toString();
-                qint64 lastPosition = query.value("lastPosition").toLongLong();
-
-                // 检查文件是否存在
-                if (QFile::exists(filePath) && !addedPaths.contains(filePath)) {
-                    m_historyModel->addItem(filePath, lastPosition);
-                    addedPaths.insert(filePath);
-                }
-            }
-
-            qDebug() << "数据库路径:" << dbPath;
-            qDebug() << "已从SQLite加载" << addedPaths.size() << "条历史记录";
-            return;
-        } else {
-            qDebug() << "无法打开数据库:" << m_historyDb.lastError();
-        }
-    }
-
-    // 如果SQLite不可用或失败，使用JSON文件作为备选
-    qDebug() << "回退到JSON文件存储";
-    loadHistoryFromJson(dbPath.replace(".db", ".json"));
-}
-
-void MainWindow::loadHistoryFromJson(const QString &jsonPath)
-{
-    // 从JSON文件加载历史记录（备选方案）
-    QFile file(jsonPath);
+    // 从JSON文件加载历史记录
+    QFile file(m_historyFilePath);
     if (file.exists() && file.open(QIODevice::ReadOnly)) {
         QByteArray jsonData = file.readAll();
         file.close();
@@ -436,51 +416,16 @@ void MainWindow::loadHistoryFromJson(const QString &jsonPath)
                     addedPaths.insert(filePath);
                 }
             }
+
+            qDebug() << "已从JSON加载" << addedPaths.size() << "条历史记录";
         }
     }
 }
 
-void MainWindow::saveHistoryToDatabase()
+void MainWindow::saveHistory()
 {
-    // 数据库路径：使用Windows标准路径
-    QString dbPath = "D:\\QTLab\\VideoPlayer\\videoplayer_history.db";
-
-    if (!m_historyDb.isOpen()) {
-        // SQLite不可用，保存到JSON文件
-        saveHistoryToJson();
-        return;
-    }
-
-    qDebug() << "保存历史记录到数据库...";
-
-    // 批量更新历史记录到数据库（使用事务）
-    m_historyDb.transaction();
-
-    for (int i = 0; i < m_historyModel->count(); ++i) {
-        QString filePath = m_historyModel->getFilePath(i);
-        qint64 lastPosition = m_historyModel->getLastPosition(i);
-
-        QSqlQuery query(m_historyDb);
-
-        // 使用REPLACE INTO实现插入或更新
-        query.prepare("REPLACE INTO history (filePath, lastPosition, updatedAt) "
-                      "VALUES (:filePath, :lastPosition, CURRENT_TIMESTAMP)");
-        query.bindValue(":filePath", filePath);
-        query.bindValue(":lastPosition", lastPosition);
-
-        if (!query.exec()) {
-            qDebug() << "保存历史记录失败:" << query.lastError();
-        }
-    }
-
-    m_historyDb.commit();
-    qDebug() << "历史记录已保存到SQLite数据库";
-}
-
-void MainWindow::saveHistoryToJson()
-{
-    QString jsonPath = "D:\\QTLab\\VideoPlayer\\videoplayer_history.json";
-    QFile file(jsonPath);
+    // 保存历史记录到JSON文件
+    QFile file(m_historyFilePath);
 
     if (file.open(QIODevice::WriteOnly)) {
         QJsonArray array;
@@ -494,7 +439,7 @@ void MainWindow::saveHistoryToJson()
         QJsonDocument doc(array);
         file.write(doc.toJson(QJsonDocument::Indented));
         file.close();
-        qDebug() << "历史记录已保存到JSON文件:" << jsonPath;
+        qDebug() << "历史记录已保存到JSON文件:" << m_historyFilePath;
     }
 }
 
@@ -505,7 +450,7 @@ void MainWindow::recordCurrentPosition()
         m_historyModel->addItem(m_currentFilePath, currentPos);
         m_lastSavedPosition = currentPos;
         // 立即保存到数据库
-        saveHistoryToDatabase();
+        saveHistory();
     }
 }
 
@@ -526,7 +471,7 @@ void MainWindow::recordPlaybackProgress()
             static int saveCounter = 0;
             saveCounter++;
             if (saveCounter >= 6) {  // 每6次（约30秒）保存一次
-                saveHistoryToDatabase();
+                saveHistory();
                 saveCounter = 0;
             }
         }
@@ -923,7 +868,7 @@ void MainWindow::removeFromHistory()
     if (currentIndex.isValid()) {
         QString filePath = m_historyModel->getFilePath(currentIndex.row());
         m_historyModel->removeItem(filePath);
-        saveHistoryToDatabase();
+        saveHistory();
         statusBar()->showMessage(tr("已从历史记录移除: %1").arg(QFileInfo(filePath).fileName()));
     }
 }
@@ -932,7 +877,7 @@ void MainWindow::clearHistory()
 {
     if (m_historyModel->count() > 0) {
         m_historyModel->clear();
-        saveHistoryToDatabase();
+        saveHistory();
         statusBar()->showMessage(tr("历史记录已清空"));
     }
 }
@@ -1022,7 +967,7 @@ void MainWindow::playFile(const QString &filePath, bool autoPlay)
         qint64 lastPos = m_mediaPlayer->position();
         if (lastPos > 0) {
             m_historyModel->addItem(m_currentFilePath, lastPos);
-            saveHistoryToDatabase();
+            saveHistory();
         }
     }
 
@@ -1143,28 +1088,57 @@ void MainWindow::loadSubtitle()
         );
 
     if (!filePath.isEmpty()) {
-        int oldCount = m_subtitles.size();
-        parseSrtFile(filePath);
         m_currentSubtitleFile = filePath;
+        startSubtitleLoading();
 
-        qDebug() << "旧字幕数:" << oldCount << "新字幕数:" << m_subtitles.size();
-
-        if (!m_subtitles.isEmpty()) {
-            m_subtitleLabel->setEnabled(true);
-            m_subtitleLabel->setVisible(true);
-            // 强制更新布局
-            m_subtitleLabel->updateGeometry();
-            if (centralWidget()) {
-                centralWidget()->update();
-            }
-
-            QFileInfo fileInfo(filePath);
-            statusBar()->showMessage(tr("已加载字幕: %1 (%2 条)").arg(fileInfo.fileName()).arg(m_subtitles.size()));
-        } else {
-            m_subtitleLabel->setEnabled(false);
-            statusBar()->showMessage(tr("字幕文件为空或格式错误"));
-        }
+        // 在后台线程中解析字幕
+        QMetaObject::invokeMethod(m_subtitleWorker, "parseSubtitle",
+                                  Qt::QueuedConnection, Q_ARG(QString, filePath));
     }
+}
+
+void MainWindow::onSubtitleParsed(const QList<QVariant> &items, const QString &filePath)
+{
+    Q_UNUSED(filePath);
+    stopSubtitleLoading();
+
+    // 清空旧字幕
+    m_subtitles.clear();
+
+    // 将解析结果转换为SubtitleItem列表
+    for (const QVariant &item : items) {
+        QVariantMap map = item.toMap();
+        SubtitleItem subtitle;
+        subtitle.startTime = map["startTime"].toLongLong();
+        subtitle.endTime = map["endTime"].toLongLong();
+        subtitle.text = map["text"].toString();
+        m_subtitles.append(subtitle);
+    }
+
+    qDebug() << "字幕解析完成，共" << m_subtitles.size() << "条";
+
+    if (!m_subtitles.isEmpty()) {
+        m_subtitleLabel->setEnabled(true);
+        m_subtitleLabel->setVisible(true);
+        // 强制更新布局
+        m_subtitleLabel->updateGeometry();
+        if (centralWidget()) {
+            centralWidget()->update();
+        }
+
+        QFileInfo fileInfo(filePath);
+        statusBar()->showMessage(tr("已加载字幕: %1 (%2 条)").arg(fileInfo.fileName()).arg(m_subtitles.size()));
+    } else {
+        m_subtitleLabel->setEnabled(false);
+        statusBar()->showMessage(tr("字幕文件为空或格式错误"));
+    }
+}
+
+void MainWindow::onSubtitleParseError(const QString &error)
+{
+    stopSubtitleLoading();
+    m_subtitleLabel->setEnabled(false);
+    statusBar()->showMessage(tr("字幕解析错误: %1").arg(error));
 }
 
 void MainWindow::clearSubtitle()
@@ -1181,74 +1155,8 @@ void MainWindow::updateSubtitle(qint64 position)
     showSubtitle(position);
 }
 
-void MainWindow::parseSrtFile(const QString &filePath)
-{
-    m_subtitles.clear();
-
-    QFile file(filePath);
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        statusBar()->showMessage(tr("无法打开字幕文件"));
-        return;
-    }
-
-    QTextStream in(&file);
-    QString line;
-    SubtitleItem currentItem;
-    bool inSubtitle = false;
-
-    while (!in.atEnd()) {
-        line = in.readLine().trimmed();
-
-        // 跳过空行
-        if (line.isEmpty()) {
-            continue;
-        }
-
-        // 如果是数字序号，开始新的字幕条目
-        if (line.contains(QRegularExpression("^\\d+$"))) {
-            if (inSubtitle && currentItem.startTime >= 0) {
-                m_subtitles.append(currentItem);
-            }
-            currentItem = SubtitleItem();
-            inSubtitle = false;
-            continue;
-        }
-
-        // 如果包含时间戳格式 "00:00:00,000 --> 00:00:00,000"
-        if (line.contains("-->")) {
-            QStringList times = line.split("-->");
-            if (times.size() == 2) {
-                currentItem.startTime = parseSrtTime(times[0].trimmed());
-                currentItem.endTime = parseSrtTime(times[1].trimmed());
-                inSubtitle = true;
-            }
-            continue;
-        }
-
-        // 如果在字幕内容中，添加到文本
-        if (inSubtitle) {
-            if (!currentItem.text.isEmpty()) {
-                currentItem.text += "\n";
-            }
-            currentItem.text += line;
-        }
-    }
-
-    // 添加最后一条字幕
-    if (inSubtitle && currentItem.startTime >= 0) {
-        m_subtitles.append(currentItem);
-    }
-
-    file.close();
-
-    if (m_subtitles.isEmpty()) {
-        statusBar()->showMessage(tr("字幕文件为空或格式错误"));
-    } else {
-        statusBar()->showMessage(tr("已加载 %1 条字幕").arg(m_subtitles.size()));
-    }
-}
-
-qint64 MainWindow::parseSrtTime(const QString &timeStr)
+// 辅助函数：解析SRT时间戳
+qint64 parseSrtTimeHelper(const QString &timeStr)
 {
     // 格式: 00:00:00,000
     QStringList parts = timeStr.split(":");
@@ -1283,6 +1191,73 @@ qint64 MainWindow::parseSrtTime(const QString &timeStr)
 
     // 转换为毫秒
     return ((hours * 3600) + (minutes * 60) + seconds) * 1000 + milliseconds;
+}
+
+// SubtitleParserWorker 实现：在后台线程中解析SRT字幕文件
+void SubtitleParserWorker::parseSubtitle(const QString &filePath)
+{
+    QList<QVariant> items;
+
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        emit parseError(tr("无法打开字幕文件"));
+        return;
+    }
+
+    QTextStream in(&file);
+    QString line;
+    QVariantMap currentItem;
+    bool inSubtitle = false;
+
+    while (!in.atEnd()) {
+        line = in.readLine().trimmed();
+
+        // 跳过空行
+        if (line.isEmpty()) {
+            continue;
+        }
+
+        // 如果是数字序号，开始新的字幕条目
+        if (line.contains(QRegularExpression("^\\d+$"))) {
+            if (inSubtitle && currentItem.contains("startTime") && currentItem["startTime"].toLongLong() >= 0) {
+                items.append(currentItem);
+            }
+            currentItem.clear();
+            inSubtitle = false;
+            continue;
+        }
+
+        // 如果包含时间戳格式 "00:00:00,000 --> 00:00:00,000"
+        if (line.contains("-->")) {
+            QStringList times = line.split("-->");
+            if (times.size() == 2) {
+                currentItem["startTime"] = parseSrtTimeHelper(times[0].trimmed());
+                currentItem["endTime"] = parseSrtTimeHelper(times[1].trimmed());
+                inSubtitle = true;
+            }
+            continue;
+        }
+
+        // 如果在字幕内容中，添加到文本
+        if (inSubtitle) {
+            QString text = currentItem["text"].toString();
+            if (!text.isEmpty()) {
+                text += "\n";
+            }
+            text += line;
+            currentItem["text"] = text;
+        }
+    }
+
+    // 添加最后一条字幕
+    if (inSubtitle && currentItem.contains("startTime") && currentItem["startTime"].toLongLong() >= 0) {
+        items.append(currentItem);
+    }
+
+    file.close();
+
+    // 发送解析结果到主线程
+    emit parseFinished(items, filePath);
 }
 
 QString MainWindow::filterSubtitleTags(const QString &text)
