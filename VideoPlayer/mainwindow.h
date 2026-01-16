@@ -17,6 +17,9 @@
 #include <QTextStream>
 #include <QFileDialog>
 #include <QRegularExpression>
+#include <QSqlDatabase>
+#include <QSqlQuery>
+#include <QSqlError>
 
 #include "playlistmodel.h"
 #include "historymodel.h"
@@ -147,10 +150,15 @@ private:
     void playFile(const QString &filePath, bool autoPlay = false);
 
     // 历史记录辅助方法
+    // 历史记录数据库
+    QSqlDatabase m_historyDb;  // SQLite数据库连接
+
     void setupHistory();
     void setupHistoryUI();
-    void loadHistoryFromFile();
-    void saveHistoryToFile();
+    void loadHistoryFromDatabase();
+    void saveHistoryToDatabase();
+    void loadHistoryFromJson(const QString &jsonPath);
+    void saveHistoryToJson();
     void recordCurrentPosition();
 
     // 字幕辅助方法

@@ -39,7 +39,7 @@ MainWindow::MainWindow(QWidget *parent)
 {
     ui->setupUi(this);
 
-    setWindowTitle(tr("丁翔简易视频播放器"));
+    setWindowTitle(tr("简易视频播放器"));
     resize(1100, 750);  // 增大窗口尺寸
     setMinimumSize(800, 550);  // 增大最小尺寸
 
@@ -53,16 +53,16 @@ MainWindow::MainWindow(QWidget *parent)
 
     // 加载保存的播放列表
     loadPlaylistFromFile();
-    // 加载历史记录
-    loadHistoryFromFile();
+    // 从SQLite数据库加载历史记录
+    loadHistoryFromDatabase();
 }
 
 MainWindow::~MainWindow()
 {
     // 保存当前播放进度
     recordCurrentPosition();
-    // 保存历史记录
-    saveHistoryToFile();
+    // 保存历史记录到SQLite数据库
+    saveHistoryToDatabase();
     delete ui;
 }
 
@@ -330,11 +330,81 @@ void MainWindow::setupHistoryUI()
             this, &MainWindow::updateHistoryStatus);
 }
 
-void MainWindow::loadHistoryFromFile()
+void MainWindow::loadHistoryFromDatabase()
 {
-    QString historyPath = QDir::homePath() + "/.videoplayer_history.json";
-    QFile file(historyPath);
+    // 数据库路径：使用Windows标准路径
+    QString dbPath = "D:\\QTLab\\VideoPlayer\\videoplayer_history.db";
 
+    // 确保目录存在
+    QDir dir(QFileInfo(dbPath).absolutePath());
+    if (!dir.exists()) {
+        bool created = dir.mkpath(".");
+        qDebug() << "创建目录结果:" << created;
+    }
+
+    // 列出可用的SQL驱动
+    QStringList availableDrivers = QSqlDatabase::drivers();
+    qDebug() << "可用的SQL驱动:" << availableDrivers;
+
+    // 尝试使用SQLite数据库
+    bool useDatabase = true;
+
+    // 检查SQLite驱动是否可用
+    if (QSqlDatabase::isDriverAvailable("QSQLITE")) {
+        qDebug() << "QSQLITE驱动可用，创建数据库连接";
+        m_historyDb = QSqlDatabase::addDatabase("QSQLITE", "history_conn");
+    } else {
+        qDebug() << "QSQLITE驱动不可用，使用JSON文件存储";
+        useDatabase = false;
+    }
+
+    if (useDatabase && m_historyDb.isValid()) {
+        qDebug() << "设置数据库路径:" << dbPath;
+        m_historyDb.setDatabaseName(dbPath);
+
+        if (m_historyDb.open()) {
+            qDebug() << "数据库打开成功";
+            // 创建表（如果不存在）
+            QSqlQuery query(m_historyDb);
+            query.exec("CREATE TABLE IF NOT EXISTS history ("
+                       "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                       "filePath TEXT NOT NULL UNIQUE, "
+                       "lastPosition INTEGER DEFAULT 0, "
+                       "updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
+
+            // 查询所有历史记录
+            query.exec("SELECT filePath, lastPosition FROM history ORDER BY updatedAt DESC");
+
+            // 收集结果并添加到模型
+            QSet<QString> addedPaths;
+            while (query.next()) {
+                QString filePath = query.value("filePath").toString();
+                qint64 lastPosition = query.value("lastPosition").toLongLong();
+
+                // 检查文件是否存在
+                if (QFile::exists(filePath) && !addedPaths.contains(filePath)) {
+                    m_historyModel->addItem(filePath, lastPosition);
+                    addedPaths.insert(filePath);
+                }
+            }
+
+            qDebug() << "数据库路径:" << dbPath;
+            qDebug() << "已从SQLite加载" << addedPaths.size() << "条历史记录";
+            return;
+        } else {
+            qDebug() << "无法打开数据库:" << m_historyDb.lastError();
+        }
+    }
+
+    // 如果SQLite不可用或失败，使用JSON文件作为备选
+    qDebug() << "回退到JSON文件存储";
+    loadHistoryFromJson(dbPath.replace(".db", ".json"));
+}
+
+void MainWindow::loadHistoryFromJson(const QString &jsonPath)
+{
+    // 从JSON文件加载历史记录（备选方案）
+    QFile file(jsonPath);
     if (file.exists() && file.open(QIODevice::ReadOnly)) {
         QByteArray jsonData = file.readAll();
         file.close();
@@ -343,7 +413,6 @@ void MainWindow::loadHistoryFromFile()
         if (doc.isArray()) {
             QJsonArray array = doc.array();
 
-            // 先收集所有有效的历史记录
             QList<QPair<QString, qint64>> items;
             for (const QJsonValue &value : array) {
                 if (value.isObject()) {
@@ -351,15 +420,12 @@ void MainWindow::loadHistoryFromFile()
                     QString filePath = obj["filePath"].toString();
                     qint64 lastPosition = static_cast<qint64>(obj["lastPosition"].toInt());
 
-                    // 检查文件是否存在
                     if (QFile::exists(filePath)) {
                         items.append(qMakePair(filePath, lastPosition));
                     }
                 }
             }
 
-            // 倒序遍历，将最新的放到顶部
-            // 跳过重复项（因为每项只添加一次到顶部）
             QSet<QString> addedPaths;
             for (int i = items.size() - 1; i >= 0; --i) {
                 const QString &filePath = items[i].first;
@@ -374,10 +440,47 @@ void MainWindow::loadHistoryFromFile()
     }
 }
 
-void MainWindow::saveHistoryToFile()
+void MainWindow::saveHistoryToDatabase()
 {
-    QString historyPath = QDir::homePath() + "/.videoplayer_history.json";
-    QFile file(historyPath);
+    // 数据库路径：使用Windows标准路径
+    QString dbPath = "D:\\QTLab\\VideoPlayer\\videoplayer_history.db";
+
+    if (!m_historyDb.isOpen()) {
+        // SQLite不可用，保存到JSON文件
+        saveHistoryToJson();
+        return;
+    }
+
+    qDebug() << "保存历史记录到数据库...";
+
+    // 批量更新历史记录到数据库（使用事务）
+    m_historyDb.transaction();
+
+    for (int i = 0; i < m_historyModel->count(); ++i) {
+        QString filePath = m_historyModel->getFilePath(i);
+        qint64 lastPosition = m_historyModel->getLastPosition(i);
+
+        QSqlQuery query(m_historyDb);
+
+        // 使用REPLACE INTO实现插入或更新
+        query.prepare("REPLACE INTO history (filePath, lastPosition, updatedAt) "
+                      "VALUES (:filePath, :lastPosition, CURRENT_TIMESTAMP)");
+        query.bindValue(":filePath", filePath);
+        query.bindValue(":lastPosition", lastPosition);
+
+        if (!query.exec()) {
+            qDebug() << "保存历史记录失败:" << query.lastError();
+        }
+    }
+
+    m_historyDb.commit();
+    qDebug() << "历史记录已保存到SQLite数据库";
+}
+
+void MainWindow::saveHistoryToJson()
+{
+    QString jsonPath = "D:\\QTLab\\VideoPlayer\\videoplayer_history.json";
+    QFile file(jsonPath);
 
     if (file.open(QIODevice::WriteOnly)) {
         QJsonArray array;
@@ -391,6 +494,7 @@ void MainWindow::saveHistoryToFile()
         QJsonDocument doc(array);
         file.write(doc.toJson(QJsonDocument::Indented));
         file.close();
+        qDebug() << "历史记录已保存到JSON文件:" << jsonPath;
     }
 }
 
@@ -400,8 +504,8 @@ void MainWindow::recordCurrentPosition()
         qint64 currentPos = m_mediaPlayer->position();
         m_historyModel->addItem(m_currentFilePath, currentPos);
         m_lastSavedPosition = currentPos;
-        // 立即保存到文件
-        saveHistoryToFile();
+        // 立即保存到数据库
+        saveHistoryToDatabase();
     }
 }
 
@@ -418,11 +522,11 @@ void MainWindow::recordPlaybackProgress()
         if (!m_currentFilePath.isEmpty()) {
             m_historyModel->addItem(m_currentFilePath, currentPos);
             m_lastSavedPosition = currentPos;
-            // 定期保存到文件（避免过于频繁）
+            // 定期保存到数据库（避免过于频繁）
             static int saveCounter = 0;
             saveCounter++;
             if (saveCounter >= 6) {  // 每6次（约30秒）保存一次
-                saveHistoryToFile();
+                saveHistoryToDatabase();
                 saveCounter = 0;
             }
         }
@@ -819,7 +923,7 @@ void MainWindow::removeFromHistory()
     if (currentIndex.isValid()) {
         QString filePath = m_historyModel->getFilePath(currentIndex.row());
         m_historyModel->removeItem(filePath);
-        saveHistoryToFile();
+        saveHistoryToDatabase();
         statusBar()->showMessage(tr("已从历史记录移除: %1").arg(QFileInfo(filePath).fileName()));
     }
 }
@@ -828,7 +932,7 @@ void MainWindow::clearHistory()
 {
     if (m_historyModel->count() > 0) {
         m_historyModel->clear();
-        saveHistoryToFile();
+        saveHistoryToDatabase();
         statusBar()->showMessage(tr("历史记录已清空"));
     }
 }
@@ -918,7 +1022,7 @@ void MainWindow::playFile(const QString &filePath, bool autoPlay)
         qint64 lastPos = m_mediaPlayer->position();
         if (lastPos > 0) {
             m_historyModel->addItem(m_currentFilePath, lastPos);
-            saveHistoryToFile();
+            saveHistoryToDatabase();
         }
     }
 
