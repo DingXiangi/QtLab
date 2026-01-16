@@ -13,6 +13,10 @@
 #include <QList>
 #include <QSet>
 #include <QTimer>
+#include <QFile>
+#include <QTextStream>
+#include <QFileDialog>
+#include <QRegularExpression>
 
 #include "playlistmodel.h"
 #include "historymodel.h"
@@ -56,6 +60,11 @@ private slots:
     void onHistoryActivated(const QModelIndex &index);
     void onHistoryDoubleClicked(const QModelIndex &index);
     void updateHistoryStatus();
+
+    // 字幕相关槽函数
+    void loadSubtitle();
+    void clearSubtitle();
+    void updateSubtitle(qint64 position);
 
 private:
     Ui::MainWindow *ui;
@@ -114,6 +123,16 @@ private:
     // 是否在恢复位置后自动播放（从历史记录打开时使用）
     bool m_autoPlayAfterSeek;
 
+    // 字幕相关成员变量
+    QLabel *m_subtitleLabel;  // 字幕显示标签
+    struct SubtitleItem {
+        qint64 startTime;     // 开始时间（毫秒）
+        qint64 endTime;       // 结束时间（毫秒）
+        QString text;         // 字幕文本
+    };
+    QList<SubtitleItem> m_subtitles;  // 字幕列表
+    QString m_currentSubtitleFile;    // 当前字幕文件路径
+
     void setupUI();
     void setupConnections();
     void applyStyles();
@@ -133,5 +152,12 @@ private:
     void loadHistoryFromFile();
     void saveHistoryToFile();
     void recordCurrentPosition();
+
+    // 字幕辅助方法
+    void setupSubtitleUI();
+    void parseSrtFile(const QString &filePath);
+    qint64 parseSrtTime(const QString &timeStr);
+    void showSubtitle(qint64 position);
 };
 #endif // MAINWINDOW_H
+

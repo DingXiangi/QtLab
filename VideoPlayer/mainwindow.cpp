@@ -14,6 +14,7 @@
 #include <QJsonObject>
 #include <QFile>
 #include <QDir>
+#include <QRegularExpression>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -34,6 +35,7 @@ MainWindow::MainWindow(QWidget *parent)
     , m_lastSavedPosition(0)
     , m_pendingPosition(-1)
     , m_autoPlayAfterSeek(false)
+    , m_subtitleLabel(nullptr)
 {
     ui->setupUi(this);
 
@@ -45,6 +47,7 @@ MainWindow::MainWindow(QWidget *parent)
     setupPlaylistUI();
     setupHistory();
     setupHistoryUI();
+    setupSubtitleUI();
     setupConnections();
     applyStyles();
 
@@ -94,7 +97,46 @@ void MainWindow::setupUI()
     m_positionLabel->setText("00:00");
     m_durationLabel->setText("00:00");
 
-    // 播放列表按钮初始状态（将在setupPlaylistUI中初始化）
+    // 查找控制按钮布局，添加字幕按钮
+    // 遍历centralWidget的子控件查找布局
+    QWidget *centralWidget = this->centralWidget();
+    if (centralWidget) {
+        QVBoxLayout *mainLayout = qobject_cast<QVBoxLayout*>(centralWidget->layout());
+        if (mainLayout) {
+            // 查找底部的水平布局（控制栏）
+            for (int i = 0; i < mainLayout->count(); ++i) {
+                QLayoutItem *item = mainLayout->itemAt(i);
+                QWidget *widget = item->widget();
+                if (widget && widget->objectName() != "videoWidget") {
+                    // 检查这个widget是否是布局
+                    QHBoxLayout *controlLayout = qobject_cast<QHBoxLayout*>(widget->layout());
+                    if (controlLayout) {
+                        // 创建字幕按钮并添加到布局
+                        QPushButton *subtitleButton = new QPushButton(tr("加载字幕"), widget);
+                        subtitleButton->setMinimumWidth(80);
+                        subtitleButton->setObjectName("subtitleButton");
+                        subtitleButton->setStyleSheet(
+                            "QPushButton {"
+                            "    background-color: #3a3a3a;"
+                            "    color: #e0e0e0;"
+                            "    border-radius: 4px;"
+                            "    padding: 6px 12px;"
+                            "    border: 1px solid #4a4a4a;"
+                            "}"
+                            ""
+                            "QPushButton:hover {"
+                            "    background-color: #4a4a4a;"
+                            "}"
+                            );
+                        controlLayout->addWidget(subtitleButton);
+                        connect(subtitleButton, &QPushButton::clicked,
+                                this, &MainWindow::loadSubtitle);
+                        break;
+                    }
+                }
+            }
+        }
+    }
 
     // 更新状态栏
     statusBar()->showMessage(tr("欢迎使用简易视频播放器"));
@@ -445,6 +487,10 @@ void MainWindow::setupConnections()
             this, &MainWindow::updatePlaylistStatus);
     connect(m_playlistModel, &PlaylistModel::rowsRemoved,
             this, &MainWindow::updatePlaylistStatus);
+
+    // 连接字幕信号
+    connect(m_mediaPlayer, &QMediaPlayer::positionChanged,
+            this, &MainWindow::updateSubtitle);
 }
 
 void MainWindow::applyStyles()
@@ -914,4 +960,225 @@ void MainWindow::playFile(const QString &filePath, bool autoPlay)
 
     QFileInfo fileInfo(filePath);
     statusBar()->showMessage(tr("已加载: %1").arg(fileInfo.fileName()));
+}
+
+void MainWindow::setupSubtitleUI()
+{
+    // 创建字幕显示标签
+    m_subtitleLabel = new QLabel(this);
+    m_subtitleLabel->setAlignment(Qt::AlignCenter);
+    m_subtitleLabel->setWordWrap(true);
+    m_subtitleLabel->setEnabled(false);  // 默认禁用
+    m_subtitleLabel->setVisible(true);  // 始终可见（但可能为空）
+    m_subtitleLabel->setMinimumHeight(30);  // 设置最小高度
+    m_subtitleLabel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);  // 固定高度策略
+    m_subtitleLabel->setStyleSheet(
+        "QLabel {"
+        "    color: #ffffff;"
+        "    background-color: rgba(0, 0, 0, 180);"
+        "    font-family: Microsoft YaHei, Arial;"
+        "    font-size: 18px;"
+        "    padding: 6px 12px;"
+        "    border-radius: 4px;"
+        "}"
+        );
+
+    // 将字幕标签添加到视频显示区域的底部
+    // 获取centralWidget的布局
+    QWidget *centralWidget = this->centralWidget();
+    if (centralWidget) {
+        QVBoxLayout *layout = qobject_cast<QVBoxLayout*>(centralWidget->layout());
+        if (layout) {
+            // 找到videoWidget的位置，在其下方添加字幕
+            bool videoWidgetFound = false;
+            for (int i = 0; i < layout->count(); ++i) {
+                QLayoutItem *item = layout->itemAt(i);
+                if (item->widget() == m_videoWidget) {
+                    videoWidgetFound = true;
+                    break;
+                }
+            }
+
+            if (videoWidgetFound) {
+                // 找到videoWidget，添加到其下方
+                layout->addWidget(m_subtitleLabel);
+            } else {
+                // 没找到videoWidget，直接添加到布局末尾
+                layout->addWidget(m_subtitleLabel);
+            }
+        }
+    }
+
+    qDebug() << "字幕标签初始化完成";
+}
+
+void MainWindow::loadSubtitle()
+{
+    QString filePath = QFileDialog::getOpenFileName(
+        this,
+        tr("打开字幕文件"),
+        QDir::homePath(),
+        tr("字幕文件 (*.srt);;所有文件 (*.*)")
+        );
+
+    if (!filePath.isEmpty()) {
+        int oldCount = m_subtitles.size();
+        parseSrtFile(filePath);
+        m_currentSubtitleFile = filePath;
+
+        qDebug() << "旧字幕数:" << oldCount << "新字幕数:" << m_subtitles.size();
+
+        if (!m_subtitles.isEmpty()) {
+            m_subtitleLabel->setEnabled(true);
+            m_subtitleLabel->setVisible(true);
+            // 强制更新布局
+            m_subtitleLabel->updateGeometry();
+            if (centralWidget()) {
+                centralWidget()->update();
+            }
+
+            QFileInfo fileInfo(filePath);
+            statusBar()->showMessage(tr("已加载字幕: %1 (%2 条)").arg(fileInfo.fileName()).arg(m_subtitles.size()));
+        } else {
+            m_subtitleLabel->setEnabled(false);
+            statusBar()->showMessage(tr("字幕文件为空或格式错误"));
+        }
+    }
+}
+
+void MainWindow::clearSubtitle()
+{
+    m_subtitles.clear();
+    m_currentSubtitleFile.clear();
+    m_subtitleLabel->setText("");
+    m_subtitleLabel->setEnabled(false);
+    statusBar()->showMessage(tr("已清除字幕"));
+}
+
+void MainWindow::updateSubtitle(qint64 position)
+{
+    showSubtitle(position);
+}
+
+void MainWindow::parseSrtFile(const QString &filePath)
+{
+    m_subtitles.clear();
+
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        statusBar()->showMessage(tr("无法打开字幕文件"));
+        return;
+    }
+
+    QTextStream in(&file);
+    QString line;
+    SubtitleItem currentItem;
+    bool inSubtitle = false;
+
+    while (!in.atEnd()) {
+        line = in.readLine().trimmed();
+
+        // 跳过空行
+        if (line.isEmpty()) {
+            continue;
+        }
+
+        // 如果是数字序号，开始新的字幕条目
+        if (line.contains(QRegularExpression("^\\d+$"))) {
+            if (inSubtitle && currentItem.startTime >= 0) {
+                m_subtitles.append(currentItem);
+            }
+            currentItem = SubtitleItem();
+            inSubtitle = false;
+            continue;
+        }
+
+        // 如果包含时间戳格式 "00:00:00,000 --> 00:00:00,000"
+        if (line.contains("-->")) {
+            QStringList times = line.split("-->");
+            if (times.size() == 2) {
+                currentItem.startTime = parseSrtTime(times[0].trimmed());
+                currentItem.endTime = parseSrtTime(times[1].trimmed());
+                inSubtitle = true;
+            }
+            continue;
+        }
+
+        // 如果在字幕内容中，添加到文本
+        if (inSubtitle) {
+            if (!currentItem.text.isEmpty()) {
+                currentItem.text += "\n";
+            }
+            currentItem.text += line;
+        }
+    }
+
+    // 添加最后一条字幕
+    if (inSubtitle && currentItem.startTime >= 0) {
+        m_subtitles.append(currentItem);
+    }
+
+    file.close();
+
+    if (m_subtitles.isEmpty()) {
+        statusBar()->showMessage(tr("字幕文件为空或格式错误"));
+    } else {
+        statusBar()->showMessage(tr("已加载 %1 条字幕").arg(m_subtitles.size()));
+    }
+}
+
+qint64 MainWindow::parseSrtTime(const QString &timeStr)
+{
+    // 格式: 00:00:00,000
+    QStringList parts = timeStr.split(":");
+    if (parts.size() != 3) {
+        return 0;
+    }
+
+    bool ok;
+    int hours = parts[0].toInt(&ok);
+    if (!ok) return 0;
+
+    int minutes = parts[1].toInt(&ok);
+    if (!ok) return 0;
+
+    // 处理秒和毫秒部分（可能有逗号）
+    QString secondsMs = parts[2];
+    int seconds = 0;
+    int milliseconds = 0;
+
+    if (secondsMs.contains(",")) {
+        QStringList secParts = secondsMs.split(",");
+        seconds = secParts[0].toInt(&ok);
+        if (!ok) seconds = 0;
+        if (secParts.size() > 1) {
+            milliseconds = secParts[1].toInt(&ok);
+            if (!ok) milliseconds = 0;
+        }
+    } else {
+        seconds = secondsMs.toInt(&ok);
+        if (!ok) seconds = 0;
+    }
+
+    // 转换为毫秒
+    return ((hours * 3600) + (minutes * 60) + seconds) * 1000 + milliseconds;
+}
+
+void MainWindow::showSubtitle(qint64 position)
+{
+    if (m_subtitles.isEmpty()) {
+        m_subtitleLabel->setText("");
+        return;
+    }
+
+    // 查找当前时间对应的字幕
+    QString currentText;
+    for (const SubtitleItem &item : m_subtitles) {
+        if (position >= item.startTime && position <= item.endTime) {
+            currentText = item.text;
+            break;
+        }
+    }
+
+    m_subtitleLabel->setText(currentText);
 }
