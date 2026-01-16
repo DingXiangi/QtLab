@@ -12,7 +12,7 @@
 #include <QDockWidget>
 #include <QList>
 #include <QTimer>
-
+#include <QSet>
 #include "playlistmodel.h"
 #include "historymodel.h"
 

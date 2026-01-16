@@ -296,6 +296,9 @@ void MainWindow::loadHistoryFromFile()
         QJsonDocument doc = QJsonDocument::fromJson(jsonData);
         if (doc.isArray()) {
             QJsonArray array = doc.array();
+
+            // 先收集所有有效的历史记录
+            QList<QPair<QString, qint64>> items;
             for (const QJsonValue &value : array) {
                 if (value.isObject()) {
                     QJsonObject obj = value.toObject();
@@ -304,8 +307,21 @@ void MainWindow::loadHistoryFromFile()
 
                     // 检查文件是否存在
                     if (QFile::exists(filePath)) {
-                        m_historyModel->addItem(filePath, lastPosition);
+                        items.append(qMakePair(filePath, lastPosition));
                     }
+                }
+            }
+
+            // 倒序遍历，将最新的放到顶部
+            // 跳过重复项（因为每项只添加一次到顶部）
+            QSet<QString> addedPaths;
+            for (int i = items.size() - 1; i >= 0; --i) {
+                const QString &filePath = items[i].first;
+                qint64 lastPosition = items[i].second;
+
+                if (!addedPaths.contains(filePath)) {
+                    m_historyModel->addItem(filePath, lastPosition);
+                    addedPaths.insert(filePath);
                 }
             }
         }
@@ -882,7 +898,11 @@ void MainWindow::playFile(const QString &filePath, bool autoPlay)
     m_backwardButton->setEnabled(true);
     m_positionSlider->setEnabled(true);
 
+    // 更新历史记录UI状态（高亮当前播放的文件）
+    updateHistoryStatus();
+
     QFileInfo fileInfo(filePath);
     statusBar()->showMessage(tr("已加载: %1").arg(fileInfo.fileName()));
 }
+
 

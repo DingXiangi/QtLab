@@ -51,15 +51,15 @@ void HistoryModel::addItem(const QString &filePath, qint64 lastPosition)
     // 检查是否已存在
     int existingIndex = getIndex(filePath);
     if (existingIndex >= 0) {
-        // 已存在则更新时间戳和进度
-        m_items[existingIndex].setLastPosition(lastPosition);
-        m_items[existingIndex].setTimestamp(QDateTime::currentDateTime());
-        emit dataChanged(createIndex(existingIndex, 0), createIndex(existingIndex, 0));
-        return;
+        // 已存在：先移除旧的
+        beginRemoveRows(QModelIndex(), existingIndex, existingIndex);
+        m_items.removeAt(existingIndex);
+        endRemoveRows();
     }
 
-    beginInsertRows(QModelIndex(), m_items.count(), m_items.count());
-    m_items.append(HistoryItem(filePath, lastPosition));
+    // 添加到列表顶部
+    beginInsertRows(QModelIndex(), 0, 0);
+    m_items.prepend(HistoryItem(filePath, lastPosition));
     endInsertRows();
 }
 
