@@ -39,7 +39,7 @@ MainWindow::MainWindow(QWidget *parent)
 {
     ui->setupUi(this);
 
-    setWindowTitle(tr("简易视频播放器"));
+    setWindowTitle(tr("丁翔简易视频播放器"));
     resize(1100, 750);  // 增大窗口尺寸
     setMinimumSize(800, 550);  // 增大最小尺寸
 
