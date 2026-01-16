@@ -40,8 +40,8 @@ MainWindow::MainWindow(QWidget *parent)
     ui->setupUi(this);
 
     setWindowTitle(tr("简易视频播放器"));
-    resize(900, 650);
-    setMinimumSize(600, 400);
+    resize(1100, 750);  // 增大窗口尺寸
+    setMinimumSize(800, 550);  // 增大最小尺寸
 
     setupUI();
     setupPlaylistUI();
@@ -75,6 +75,9 @@ void MainWindow::setupUI()
     m_mediaPlayer->setVideoOutput(m_videoWidget);
     m_mediaPlayer->setAudioOutput(m_audioOutput);
     m_audioOutput->setVolume(1.0);  // 最大音量
+
+    // 设置视频组件的大小策略，让它尽可能扩展
+    m_videoWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
     // 获取UI中的控件
     m_playButton = ui->playButton;
@@ -970,40 +973,54 @@ void MainWindow::setupSubtitleUI()
     m_subtitleLabel->setWordWrap(true);
     m_subtitleLabel->setEnabled(false);  // 默认禁用
     m_subtitleLabel->setVisible(true);  // 始终可见（但可能为空）
-    m_subtitleLabel->setMinimumHeight(30);  // 设置最小高度
+    m_subtitleLabel->setMinimumHeight(40);  // 设置最小高度
     m_subtitleLabel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);  // 固定高度策略
     m_subtitleLabel->setStyleSheet(
         "QLabel {"
         "    color: #ffffff;"
         "    background-color: rgba(0, 0, 0, 180);"
         "    font-family: Microsoft YaHei, Arial;"
-        "    font-size: 18px;"
-        "    padding: 6px 12px;"
+        "    font-size: 20px;"
+        "    padding: 8px 16px;"
         "    border-radius: 4px;"
         "}"
         );
 
-    // 将字幕标签添加到视频显示区域的底部
-    // 获取centralWidget的布局
+    // 将字幕标签添加到进度条上方
     QWidget *centralWidget = this->centralWidget();
     if (centralWidget) {
         QVBoxLayout *layout = qobject_cast<QVBoxLayout*>(centralWidget->layout());
         if (layout) {
-            // 找到videoWidget的位置，在其下方添加字幕
-            bool videoWidgetFound = false;
+            // 遍历布局，找到控制栏（在进度条那个位置）
+            // 假设布局结构是：videoWidget -> 进度条 -> 控制按钮
+            // 我们要在进度条之前插入字幕
+
+            // 先找到播放按钮和进度条等控件的容器
             for (int i = 0; i < layout->count(); ++i) {
                 QLayoutItem *item = layout->itemAt(i);
-                if (item->widget() == m_videoWidget) {
-                    videoWidgetFound = true;
-                    break;
+                QWidget *widget = item->widget();
+
+                // 查找包含播放按钮的容器（控制栏）
+                if (widget && widget->objectName().isEmpty()) {
+                    // 检查是否是布局容器
+                    QVBoxLayout *innerLayout = qobject_cast<QVBoxLayout*>(widget->layout());
+                    if (innerLayout) {
+                        // 这个可能是包含进度条和按钮的容器
+                        // 在这个容器开头插入字幕
+                        innerLayout->insertWidget(0, m_subtitleLabel);
+                        qDebug() << "字幕标签已插入到控制栏开头";
+                        return;
+                    }
                 }
             }
 
-            if (videoWidgetFound) {
-                // 找到videoWidget，添加到其下方
-                layout->addWidget(m_subtitleLabel);
+            // 如果没找到控制栏，直接添加到主布局的倒数第二个位置（在控制栏之前）
+            if (layout->count() > 1) {
+                // 移除已有的（如果之前添加过）
+                layout->removeWidget(m_subtitleLabel);
+                // 在倒数第二个位置插入（在控制栏之前）
+                layout->insertWidget(layout->count() - 1, m_subtitleLabel);
             } else {
-                // 没找到videoWidget，直接添加到布局末尾
                 layout->addWidget(m_subtitleLabel);
             }
         }
@@ -1164,6 +1181,36 @@ qint64 MainWindow::parseSrtTime(const QString &timeStr)
     return ((hours * 3600) + (minutes * 60) + seconds) * 1000 + milliseconds;
 }
 
+QString MainWindow::filterSubtitleTags(const QString &text)
+{
+    QString result = text;
+
+    // 过滤 ASS/SSA 标签格式: {\xxx}
+    // 如: {\an2\fs16\1c&HFFFFFF&} -> 空
+    QRegularExpression assTagRegex(R"(\\{[^}]*\\})");
+    result.remove(assTagRegex);
+
+    // 过滤简单的 ASS 标签: {\xxx}
+    QRegularExpression assSimpleRegex(R"(\\{[^}]+\})");
+    result.remove(assSimpleRegex);
+
+    // 过滤 HTML 标签: <xxx> 或 </xxx>
+    QRegularExpression htmlTagRegex(R"(<[^>]*>)");
+    result.remove(htmlTagRegex);
+
+    // 过滤花括号内容（可能是特效标签）
+    QRegularExpression braceRegex(R"(\{[^{}]+\})");
+    result.remove(braceRegex);
+
+    // 过滤多余空白行
+    result.replace(QRegularExpression(R"(\n\s*\n)"), "\n");
+
+    // 去除首尾空白
+    result = result.trimmed();
+
+    return result;
+}
+
 void MainWindow::showSubtitle(qint64 position)
 {
     if (m_subtitles.isEmpty()) {
@@ -1175,7 +1222,8 @@ void MainWindow::showSubtitle(qint64 position)
     QString currentText;
     for (const SubtitleItem &item : m_subtitles) {
         if (position >= item.startTime && position <= item.endTime) {
-            currentText = item.text;
+            // 过滤字幕标签
+            currentText = filterSubtitleTags(item.text);
             break;
         }
     }

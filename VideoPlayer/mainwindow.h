@@ -157,6 +157,7 @@ private:
     void setupSubtitleUI();
     void parseSrtFile(const QString &filePath);
     qint64 parseSrtTime(const QString &timeStr);
+    QString filterSubtitleTags(const QString &text);
     void showSubtitle(qint64 position);
 };
 #endif // MAINWINDOW_H
